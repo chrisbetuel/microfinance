@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ShieldCheck, TrendingUp, Users } from 'lucide-react'
@@ -6,7 +6,13 @@ import { useStore } from '../store/useStore'
 import { Button } from '../components/ui/Button'
 import { Field, inputClass } from '../components/ui/Field'
 import { api, ApiError, setToken } from '../lib/api'
-import loginBg from '../assets/login-bg.jpg'
+import enterprise from '../assets/login/enterprise.jpg'
+import market from '../assets/login/market.jpg'
+import growth from '../assets/login/growth.jpg'
+import review from '../assets/login/review.jpg'
+
+const IMAGES = [enterprise, market, growth, review]
+const ROTATE_MS = 8000
 
 const highlights = [
   { icon: TrendingUp, text: 'Purpose-built for microfinance lending' },
@@ -26,6 +32,14 @@ export default function Login() {
   const [adminName, setAdminName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  // Background rotates through the imagery, starting from a random frame.
+  const [bg, setBg] = useState(() => Math.floor(Math.random() * IMAGES.length))
+  useEffect(() => {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    const id = setInterval(() => setBg((i) => (i + 1) % IMAGES.length), ROTATE_MS)
+    return () => clearInterval(id)
+  }, [])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -54,10 +68,21 @@ export default function Login() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-950">
-      {/* full-bleed imagery + gradient */}
-      <img src={loginBg} alt="" className="absolute inset-0 h-full w-full object-cover object-center" loading="eager" />
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-950/85 via-indigo-950/75 to-slate-950/95" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-10%,rgba(99,102,241,0.4),transparent_55%)]" />
+      {/* rotating full-bleed imagery with a slow drift */}
+      {IMAGES.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          aria-hidden
+          loading={i === 0 ? 'eager' : 'lazy'}
+          className={`absolute inset-0 h-full w-full object-cover object-center transition-[opacity,transform] duration-[2500ms] ease-in-out ${
+            i === bg ? 'scale-105 opacity-100' : 'scale-100 opacity-0'
+          }`}
+        />
+      ))}
+      <div className="absolute inset-0 bg-gradient-to-b from-slate-950/78 via-slate-900/55 to-slate-950/92" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-10%,rgba(99,102,241,0.35),transparent_55%)]" />
 
       {/* content starts at the top */}
       <div className="relative flex min-h-screen flex-col items-center px-4 pb-16 pt-10 sm:pt-14">
