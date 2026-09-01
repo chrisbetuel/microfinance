@@ -28,7 +28,7 @@ export function ApplicationQueueCard({
         title={title}
         subtitle={subtitle}
         action={
-          <Link to={viewAllHref} className="text-xs font-medium text-indigo-600 hover:underline">
+          <Link to={viewAllHref} className="text-xs font-medium text-brand-600 hover:underline">
             View all
           </Link>
         }
@@ -40,7 +40,7 @@ export function ApplicationQueueCard({
           {applications.map((app) => (
             <li key={app.id} className="flex items-center justify-between py-2.5 text-sm">
               <div>
-                <Link to={`/applications/${app.id}`} className="font-medium text-slate-800 hover:text-indigo-600">
+                <Link to={`/applications/${app.id}`} className="font-medium text-slate-800 hover:text-brand-600">
                   {app.reference}
                 </Link>
                 <p className="text-xs text-slate-400">

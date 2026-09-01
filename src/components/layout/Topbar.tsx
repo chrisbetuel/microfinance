@@ -17,7 +17,7 @@ export function Topbar() {
   return (
     <header className="relative z-30 flex items-center justify-end border-b border-slate-200 bg-white/80 px-6 py-3 backdrop-blur-sm">
       <div className="flex items-center gap-3">
-        <div className="hidden items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-100 sm:flex">
+        <div className="hidden items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-100 sm:flex">
           <MessageSquare size={13} />
           SMS balance: <span className="tabular-nums font-semibold">{lender.smsBalance.toLocaleString()}</span>
         </div>
@@ -27,7 +27,7 @@ export function Topbar() {
             onClick={() => setOpen((v) => !v)}
             className="flex items-center gap-2 rounded-full border border-slate-200 py-1 pl-1 pr-2.5 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
           >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 text-xs font-semibold text-white shadow-sm">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-semibold text-white shadow-sm">
               {initials(currentUser.name)}
             </span>
             <span className="text-left">

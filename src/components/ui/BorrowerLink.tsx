@@ -5,7 +5,7 @@ export function BorrowerLink({ id, borrowers }: { id: string; borrowers: Borrowe
   const borrower = borrowers.find((b) => b.id === id)
   if (!borrower) return <span>—</span>
   return (
-    <Link to={`/borrowers/${borrower.id}`} onClick={(e) => e.stopPropagation()} className="hover:text-indigo-600 hover:underline">
+    <Link to={`/borrowers/${borrower.id}`} onClick={(e) => e.stopPropagation()} className="hover:text-brand-600 hover:underline">
       {borrower.fullName}
     </Link>
   )

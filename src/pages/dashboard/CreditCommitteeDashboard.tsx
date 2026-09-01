@@ -87,7 +87,7 @@ export default function CreditCommitteeDashboard({ staff: approver }: { staff: S
                 return (
                   <li key={app.id} className="flex items-center justify-between px-5 py-3 text-sm">
                     <div>
-                      <Link to={`/applications/${app.id}`} className="font-medium text-slate-800 hover:text-indigo-600">
+                      <Link to={`/applications/${app.id}`} className="font-medium text-slate-800 hover:text-brand-600">
                         {app.reference}
                       </Link>
                       <p className="text-xs text-slate-400">

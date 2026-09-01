@@ -131,7 +131,7 @@ export default function BorrowersList() {
                 type="button"
                 key={t}
                 onClick={() => setForm({ ...form, type: t })}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize ${form.type === t ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize ${form.type === t ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600'}`}
               >
                 {t}
               </button>
@@ -203,7 +203,7 @@ export default function BorrowersList() {
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Guarantors</p>
               <button
                 type="button"
-                className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline"
+                className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
                 onClick={() =>
                   setForm({ ...form, guarantors: [...form.guarantors, { name: '', nationalId: '', phone: '' }] })
                 }

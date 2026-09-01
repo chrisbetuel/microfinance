@@ -34,7 +34,7 @@ export default function SecurityAudit() {
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Card className="flex items-center gap-3">
-          <span className="rounded-lg bg-indigo-100 p-2 text-indigo-600">
+          <span className="rounded-lg bg-brand-100 p-2 text-brand-600">
             <KeyRound size={18} />
           </span>
           <div>
@@ -43,7 +43,7 @@ export default function SecurityAudit() {
           </div>
         </Card>
         <Card className="flex items-center gap-3">
-          <span className="rounded-lg bg-indigo-100 p-2 text-indigo-600">
+          <span className="rounded-lg bg-brand-100 p-2 text-brand-600">
             <ShieldCheck size={18} />
           </span>
           <div>

@@ -121,7 +121,7 @@ export default function LoanOfficerDashboard({ staff: officer }: { staff: Staff 
               title="My applications"
               subtitle={`${pendingMyApplications.length} awaiting a decision`}
               action={
-                <Link to="/applications" className="text-xs font-medium text-indigo-600 hover:underline">
+                <Link to="/applications" className="text-xs font-medium text-brand-600 hover:underline">
                   View all
                 </Link>
               }
@@ -134,7 +134,7 @@ export default function LoanOfficerDashboard({ staff: officer }: { staff: Staff 
               {myApplications.slice(0, 6).map((app) => (
                 <li key={app.id} className="flex items-center justify-between px-5 py-3 text-sm">
                   <div>
-                    <Link to={`/applications/${app.id}`} className="font-medium text-slate-800 hover:text-indigo-600">
+                    <Link to={`/applications/${app.id}`} className="font-medium text-slate-800 hover:text-brand-600">
                       {app.reference}
                     </Link>
                     <p className="text-xs text-slate-400">

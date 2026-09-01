@@ -74,7 +74,7 @@ function RecordRepayment() {
                   setLoanId(loan.id)
                   setReceipt(null)
                 }}
-                className={`w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-slate-50 ${loanId === loan.id ? 'bg-indigo-50' : ''}`}
+                className={`w-full rounded-lg px-2 py-2 text-left text-sm hover:bg-slate-50 ${loanId === loan.id ? 'bg-brand-50' : ''}`}
               >
                 <p className="font-medium text-slate-800">{b?.fullName}</p>
                 <p className="text-xs text-slate-400">{formatMoney(loan.outstandingBalance, lender.currency)} outstanding</p>
@@ -95,7 +95,7 @@ function RecordRepayment() {
               subtitle={product?.name}
               action={
                 borrower && (
-                  <Link to={`/borrowers/${borrower.id}`} className="text-xs font-medium text-indigo-600 hover:underline">
+                  <Link to={`/borrowers/${borrower.id}`} className="text-xs font-medium text-brand-600 hover:underline">
                     View borrower file
                   </Link>
                 )

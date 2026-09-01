@@ -25,7 +25,7 @@ export function Table<T>({ columns, rows, rowKey, onRowClick }: { columns: Colum
             <tr
               key={rowKey(row)}
               onClick={() => onRowClick?.(row)}
-              className={clsx('transition-colors', onRowClick && 'cursor-pointer hover:bg-indigo-50/50')}
+              className={clsx('transition-colors', onRowClick && 'cursor-pointer hover:bg-brand-50/50')}
             >
               {columns.map((col) => (
                 <td key={col.header} className={`px-4 py-3.5 text-slate-700 ${col.className ?? ''}`}>

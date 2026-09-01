@@ -38,7 +38,7 @@ const EMPTY_LENDER: Lender = {
   phone: '',
   email: '',
   logoInitials: '',
-  brandColor: '#4F46E5',
+  brandColor: '#EE0033',
   currency: 'TZS',
   language: 'sw',
   planLevel: 'starter',

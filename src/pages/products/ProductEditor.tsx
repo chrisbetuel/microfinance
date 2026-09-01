@@ -284,7 +284,7 @@ export default function ProductEditor() {
                         securityRequired: checked ? p.securityRequired.filter((s) => s !== opt.value) : [...p.securityRequired.filter((s) => s !== 'none'), opt.value],
                       }))
                     }
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${checked ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium ${checked ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600'}`}
                   >
                     {opt.label}
                   </button>
@@ -354,7 +354,7 @@ export default function ProductEditor() {
                 <input type="number" className={inputClass} value={testTerm} onChange={(e) => setTestTerm(Number(e.target.value))} />
               </Field>
             </div>
-            <div className="mb-3 flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+            <div className="mb-3 flex items-center gap-2 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800">
               <FlaskConical size={14} />
               Principal {formatMoney(scheduleTotals.principal)} · Interest {formatMoney(scheduleTotals.interest)} · Fees{' '}
               {formatMoney(scheduleTotals.fees)}

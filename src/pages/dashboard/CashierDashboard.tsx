@@ -65,7 +65,7 @@ export default function CashierDashboard({ staff: cashier }: { staff: Staff }) {
         <Card padded={false}>
           <div className="flex items-start justify-between p-5 pb-0">
             <CardHeader title="Recent repayments" />
-            <Link to="/repayments" className="text-xs font-medium text-indigo-600 hover:underline">
+            <Link to="/repayments" className="text-xs font-medium text-brand-600 hover:underline">
               Record a repayment
             </Link>
           </div>

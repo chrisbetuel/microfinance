@@ -60,7 +60,7 @@ export default function AuditorDashboard() {
         <Card padded={false}>
           <div className="flex items-start justify-between p-5 pb-0">
             <CardHeader title="Recent activity" />
-            <Link to="/security" className="text-xs font-medium text-indigo-600 hover:underline">
+            <Link to="/security" className="text-xs font-medium text-brand-600 hover:underline">
               Full audit trail
             </Link>
           </div>

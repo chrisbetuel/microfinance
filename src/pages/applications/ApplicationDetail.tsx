@@ -138,7 +138,7 @@ export default function ApplicationDetail() {
         <div className="space-y-5">
           <Card>
             <CardHeader title="Borrower" />
-            <Link to={`/borrowers/${borrower.id}`} className="text-sm font-medium text-indigo-600 hover:underline">
+            <Link to={`/borrowers/${borrower.id}`} className="text-sm font-medium text-brand-600 hover:underline">
               {borrower.fullName}
             </Link>
             <p className="mt-1 text-xs text-slate-400">{borrower.phone}</p>

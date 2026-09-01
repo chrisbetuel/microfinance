@@ -58,9 +58,9 @@ export function Sidebar() {
             className={({ isActive }) =>
               clsx(
                 'relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                'before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-indigo-600 before:transition-transform',
+                'before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-brand-600 before:transition-transform',
                 isActive
-                  ? 'bg-indigo-50 text-indigo-700 before:scale-y-100'
+                  ? 'bg-brand-50 text-brand-700 before:scale-y-100'
                   : 'text-slate-600 before:scale-y-0 hover:bg-slate-50 hover:text-slate-900',
               )
             }
@@ -70,7 +70,7 @@ export function Sidebar() {
                 <item.icon
                   size={17}
                   strokeWidth={2.1}
-                  className={isActive ? 'text-indigo-600' : 'text-slate-400'}
+                  className={isActive ? 'text-brand-600' : 'text-slate-400'}
                 />
                 {item.label}
               </>

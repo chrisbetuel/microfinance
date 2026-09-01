@@ -1,22 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Lock, Mail, Send } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { Button } from '../components/ui/Button'
 import { api, ApiError, setToken } from '../lib/api'
-import enterprise from '../assets/login/enterprise.jpg'
-import market from '../assets/login/market.jpg'
-import growth from '../assets/login/growth.jpg'
-import review from '../assets/login/review.jpg'
+import background from '../assets/login/viettel-hq.jpg'
 
-const IMAGES = [enterprise, market, growth, review]
-const ROTATE_MS = 8000
-
-const fieldWrap = 'relative'
 const fieldIcon = 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400'
 const fieldInput =
-  'w-full rounded-lg border border-transparent bg-slate-100 py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500'
+  'w-full rounded-lg border border-transparent bg-slate-100 py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:ring-1 focus:ring-brand-500'
+const plainInput = fieldInput.replace('pl-10', 'pl-3')
 const fieldLabel = 'mb-1.5 block text-sm font-semibold text-slate-800'
 
 export default function Login() {
@@ -31,13 +25,6 @@ export default function Login() {
   const [adminName, setAdminName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-
-  const [bg, setBg] = useState(() => Math.floor(Math.random() * IMAGES.length))
-  useEffect(() => {
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
-    const id = setInterval(() => setBg((i) => (i + 1) % IMAGES.length), ROTATE_MS)
-    return () => clearInterval(id)
-  }, [])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -65,31 +52,25 @@ export default function Login() {
   }
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-slate-900">
-      {/* rotating full-bleed imagery */}
-      {IMAGES.map((src, i) => (
-        <img
-          key={src}
-          src={src}
-          alt=""
-          aria-hidden
-          loading={i === 0 ? 'eager' : 'lazy'}
-          className={`absolute inset-0 h-full w-full object-cover object-center transition-[opacity,transform] duration-[2500ms] ease-in-out ${
-            i === bg ? 'scale-105 opacity-100' : 'scale-100 opacity-0'
-          }`}
-        />
-      ))}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-900/40 via-slate-900/25 to-indigo-950/45" />
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-slate-900">
+      {/* full-bleed background with a slow drift (motion-safe) */}
+      <img
+        src={background}
+        alt=""
+        aria-hidden
+        className="lms-kenburns absolute inset-0 h-full w-full object-cover object-center"
+      />
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-900/30 via-transparent to-slate-900/40" />
 
       {/* centred login card */}
       <div className="relative flex flex-1 items-center justify-center px-4 py-10">
-        <div className="w-full max-w-[380px] rounded-3xl bg-white p-8 shadow-[0_25px_70px_-15px_rgba(2,6,23,0.45)]">
+        <div className="w-full max-w-[380px] rounded-3xl bg-white p-8 shadow-[0_25px_70px_-15px_rgba(2,6,23,0.5)]">
           <div className="mb-7 flex items-center justify-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white">
               <Send size={18} strokeWidth={2.25} />
             </span>
             <span className="text-xl font-extrabold tracking-tight text-slate-900">
-              Sele<span className="text-indigo-600">MF</span>
+              Sele<span className="text-brand-600">MF</span>
             </span>
           </div>
 
@@ -98,18 +79,18 @@ export default function Login() {
               <>
                 <div>
                   <label className={fieldLabel}>Lender / organisation name</label>
-                  <input required className={fieldInput.replace('pl-10', 'pl-3')} value={lenderName} onChange={(e) => setLenderName(e.target.value)} />
+                  <input required className={plainInput} value={lenderName} onChange={(e) => setLenderName(e.target.value)} />
                 </div>
                 <div>
                   <label className={fieldLabel}>Your full name</label>
-                  <input required className={fieldInput.replace('pl-10', 'pl-3')} value={adminName} onChange={(e) => setAdminName(e.target.value)} />
+                  <input required className={plainInput} value={adminName} onChange={(e) => setAdminName(e.target.value)} />
                 </div>
               </>
             )}
 
             <div>
               <label className={fieldLabel}>Email Address</label>
-              <div className={fieldWrap}>
+              <div className="relative">
                 <Mail size={16} className={fieldIcon} />
                 <input
                   required
@@ -125,7 +106,7 @@ export default function Login() {
 
             <div>
               <label className={fieldLabel}>Password</label>
-              <div className={fieldWrap}>
+              <div className="relative">
                 <Lock size={16} className={fieldIcon} />
                 <input
                   required
@@ -152,7 +133,7 @@ export default function Login() {
             {mode === 'login' ? 'New to the platform? ' : 'Already have an account? '}
             <button
               type="button"
-              className="font-semibold text-indigo-600 hover:text-indigo-700 hover:underline"
+              className="font-semibold text-brand-600 hover:text-brand-700 hover:underline"
               onClick={() => {
                 setMode(mode === 'login' ? 'register' : 'login')
                 setError(null)
@@ -164,7 +145,7 @@ export default function Login() {
         </div>
       </div>
 
-      <footer className="relative pb-6 text-center text-xs leading-relaxed text-white/60">
+      <footer className="relative pb-6 text-center text-xs leading-relaxed text-white/70">
         © {new Date().getFullYear()} Sele Microfinance · Loan Management System
         <br />
         For access issues contact your lender administrator

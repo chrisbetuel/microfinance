@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import clsx from 'clsx'
 
 const tones = {
-  brand: { chip: 'bg-indigo-50 text-indigo-600 ring-indigo-100', accent: 'before:bg-indigo-500' },
+  brand: { chip: 'bg-brand-50 text-brand-600 ring-brand-100', accent: 'before:bg-brand-500' },
   green: { chip: 'bg-emerald-50 text-emerald-600 ring-emerald-100', accent: 'before:bg-emerald-500' },
   red: { chip: 'bg-red-50 text-red-600 ring-red-100', accent: 'before:bg-red-500' },
   amber: { chip: 'bg-amber-50 text-amber-600 ring-amber-100', accent: 'before:bg-amber-500' },

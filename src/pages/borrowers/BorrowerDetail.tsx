@@ -83,7 +83,7 @@ export default function BorrowerDetail() {
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700">
           {initials(borrower.fullName)}
         </span>
         <Badge tone={borrower.blacklisted ? 'red' : 'green'}>{borrower.blacklisted ? 'Blacklisted' : 'Good standing'}</Badge>
@@ -131,7 +131,7 @@ export default function BorrowerDetail() {
                   return (
                     <li key={app.id} className="flex items-center justify-between px-5 py-3 text-sm">
                       <div>
-                        <Link to={`/applications/${app.id}`} className="font-medium text-slate-800 hover:text-indigo-600 hover:underline">
+                        <Link to={`/applications/${app.id}`} className="font-medium text-slate-800 hover:text-brand-600 hover:underline">
                           {app.reference}
                         </Link>
                         <p className="text-xs text-slate-400">
@@ -238,7 +238,7 @@ export default function BorrowerDetail() {
             <ol className="space-y-4 border-l border-slate-200 pl-4">
               {borrower.history.map((h) => (
                 <li key={h.id} className="relative">
-                  <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-indigo-500" />
+                  <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-brand-500" />
                   <p className="text-sm font-medium text-slate-800">{h.label}</p>
                   <p className="text-xs text-slate-400">{formatDate(h.date)}</p>
                   <p className="mt-0.5 text-sm text-slate-600">{h.detail}</p>
