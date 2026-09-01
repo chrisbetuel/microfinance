@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ShieldCheck, TrendingUp, Users } from 'lucide-react'
+import { Lock, Mail, Send } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { Button } from '../components/ui/Button'
-import { Field, inputClass } from '../components/ui/Field'
 import { api, ApiError, setToken } from '../lib/api'
 import enterprise from '../assets/login/enterprise.jpg'
 import market from '../assets/login/market.jpg'
@@ -14,11 +13,11 @@ import review from '../assets/login/review.jpg'
 const IMAGES = [enterprise, market, growth, review]
 const ROTATE_MS = 8000
 
-const highlights = [
-  { icon: TrendingUp, text: 'Purpose-built for microfinance lending' },
-  { icon: ShieldCheck, text: 'Four-eyes approval, disbursement and a full audit trail' },
-  { icon: Users, text: 'One borrower, one file — individuals and businesses' },
-]
+const fieldWrap = 'relative'
+const fieldIcon = 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400'
+const fieldInput =
+  'w-full rounded-lg border border-transparent bg-slate-100 py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-1 focus:ring-indigo-500'
+const fieldLabel = 'mb-1.5 block text-sm font-semibold text-slate-800'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -33,7 +32,6 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // Background rotates through the imagery, starting from a random frame.
   const [bg, setBg] = useState(() => Math.floor(Math.random() * IMAGES.length))
   useEffect(() => {
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
@@ -67,8 +65,8 @@ export default function Login() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950">
-      {/* rotating full-bleed imagery with a slow drift */}
+    <div className="relative flex min-h-screen flex-col bg-slate-900">
+      {/* rotating full-bleed imagery */}
       {IMAGES.map((src, i) => (
         <img
           key={src}
@@ -81,72 +79,76 @@ export default function Login() {
           }`}
         />
       ))}
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-950/78 via-slate-900/55 to-slate-950/92" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-10%,rgba(99,102,241,0.35),transparent_55%)]" />
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-900/40 via-slate-900/25 to-indigo-950/45" />
 
-      {/* content starts at the top */}
-      <div className="relative flex min-h-screen flex-col items-center px-4 pb-16 pt-10 sm:pt-14">
-        <div className="mb-7 flex items-center gap-3 text-white">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-sm font-bold ring-1 ring-inset ring-white/20 backdrop-blur">
-            LMS
+      {/* centred login card */}
+      <div className="relative flex flex-1 items-center justify-center px-4 py-10">
+        <div className="w-full max-w-[380px] rounded-3xl bg-white p-8 shadow-[0_25px_70px_-15px_rgba(2,6,23,0.45)]">
+          <div className="mb-7 flex items-center justify-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white">
+              <Send size={18} strokeWidth={2.25} />
+            </span>
+            <span className="text-xl font-extrabold tracking-tight text-slate-900">
+              Sele<span className="text-indigo-600">MF</span>
+            </span>
           </div>
-          <span className="text-sm font-semibold tracking-tight text-white/90">Loan Management System</span>
-        </div>
 
-        <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white p-6 shadow-[0_30px_60px_-15px_rgba(2,6,23,0.6)] sm:p-7">
-          <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
-            {mode === 'login' ? 'Welcome back' : 'Create your workspace'}
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {mode === 'login'
-              ? 'Sign in to continue to your lender workspace.'
-              : 'Set up a new, private lender workspace in seconds.'}
-          </p>
-
-          <form onSubmit={submit} className="mt-5 space-y-4">
+          <form onSubmit={submit} className="space-y-4">
             {mode === 'register' && (
               <>
-                <Field label="Lender / organisation name">
-                  <input required className={inputClass} value={lenderName} onChange={(e) => setLenderName(e.target.value)} />
-                </Field>
-                <Field label="Your full name">
-                  <input required className={inputClass} value={adminName} onChange={(e) => setAdminName(e.target.value)} />
-                </Field>
+                <div>
+                  <label className={fieldLabel}>Lender / organisation name</label>
+                  <input required className={fieldInput.replace('pl-10', 'pl-3')} value={lenderName} onChange={(e) => setLenderName(e.target.value)} />
+                </div>
+                <div>
+                  <label className={fieldLabel}>Your full name</label>
+                  <input required className={fieldInput.replace('pl-10', 'pl-3')} value={adminName} onChange={(e) => setAdminName(e.target.value)} />
+                </div>
               </>
             )}
-            <Field label="Email address">
-              <input
-                required
-                type="email"
-                autoComplete="username"
-                placeholder="you@lender.co"
-                className={inputClass}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </Field>
-            <Field label="Password">
-              <input
-                required
-                type="password"
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                placeholder="••••••••"
-                className={inputClass}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </Field>
+
+            <div>
+              <label className={fieldLabel}>Email Address</label>
+              <div className={fieldWrap}>
+                <Mail size={16} className={fieldIcon} />
+                <input
+                  required
+                  type="email"
+                  autoComplete="username"
+                  placeholder="you@lender.co"
+                  className={fieldInput}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className={fieldLabel}>Password</label>
+              <div className={fieldWrap}>
+                <Lock size={16} className={fieldIcon} />
+                <input
+                  required
+                  type="password"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  placeholder="••••••••"
+                  className={fieldInput}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+            </div>
 
             {error && (
               <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
             )}
 
-            <Button type="submit" className="w-full py-2.5" disabled={busy}>
-              {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create workspace'}
+            <Button type="submit" className="mt-1 w-full py-2.5 text-sm" disabled={busy}>
+              {busy ? 'Please wait…' : mode === 'login' ? 'Login' : 'Create workspace'}
             </Button>
           </form>
 
-          <p className="mt-5 text-center text-sm text-slate-500">
+          <p className="mt-6 text-center text-sm text-slate-500">
             {mode === 'login' ? 'New to the platform? ' : 'Already have an account? '}
             <button
               type="button"
@@ -156,20 +158,17 @@ export default function Login() {
                 setError(null)
               }}
             >
-              {mode === 'login' ? 'Create a workspace' : 'Sign in instead'}
+              {mode === 'login' ? 'Create a workspace' : 'Sign in'}
             </button>
           </p>
         </div>
-
-        <ul className="mt-8 w-full max-w-sm space-y-2.5">
-          {highlights.map(({ icon: Icon, text }) => (
-            <li key={text} className="flex items-center gap-2.5 text-sm text-white/75">
-              <Icon size={15} className="flex-shrink-0 text-white/50" />
-              {text}
-            </li>
-          ))}
-        </ul>
       </div>
+
+      <footer className="relative pb-6 text-center text-xs leading-relaxed text-white/60">
+        © {new Date().getFullYear()} Sele Microfinance · Loan Management System
+        <br />
+        For access issues contact your lender administrator
+      </footer>
     </div>
   )
 }
