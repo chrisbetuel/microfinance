@@ -17,7 +17,7 @@ class Lender(TimestampMixin, Base):
     phone: Mapped[str] = mapped_column(String(50), default="")
     email: Mapped[str] = mapped_column(String(200), default="")
     logo_initials: Mapped[str] = mapped_column(String(3), default="")
-    brand_color: Mapped[str] = mapped_column(String(7), default="#4F46E5")
+    brand_color: Mapped[str] = mapped_column(String(7), default="#EE0033")
     currency: Mapped[str] = mapped_column(String(10), default="TZS")
     language: Mapped[str] = mapped_column(String(2), default="sw")
     plan_level: Mapped[str] = mapped_column(String(20), default="starter")

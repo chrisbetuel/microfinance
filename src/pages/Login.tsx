@@ -53,13 +53,8 @@ export default function Login() {
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-slate-900">
-      {/* full-bleed background with a slow drift (motion-safe) */}
-      <img
-        src={background}
-        alt=""
-        aria-hidden
-        className="lms-kenburns absolute inset-0 h-full w-full object-cover object-center"
-      />
+      {/* full-bleed background */}
+      <img src={background} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover object-center" />
       <div className="absolute inset-0 bg-gradient-to-br from-slate-900/30 via-transparent to-slate-900/40" />
 
       {/* centred login card */}

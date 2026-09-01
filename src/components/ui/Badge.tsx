@@ -9,7 +9,8 @@ const toneClasses: Record<BadgeTone, string> = {
   amber: 'bg-amber-50 text-amber-700 ring-amber-200',
   red: 'bg-red-50 text-red-700 ring-red-200',
   blue: 'bg-blue-50 text-blue-700 ring-blue-200',
-  violet: 'bg-violet-50 text-violet-700 ring-violet-200',
+  // "disbursed" status — kept distinct from the danger red, in the brand family
+  violet: 'bg-brand-50 text-brand-700 ring-brand-100',
 }
 
 const dotClasses: Record<BadgeTone, string> = {
@@ -18,7 +19,7 @@ const dotClasses: Record<BadgeTone, string> = {
   amber: 'bg-amber-500',
   red: 'bg-red-500',
   blue: 'bg-blue-500',
-  violet: 'bg-violet-500',
+  violet: 'bg-brand-500',
 }
 
 export function Badge({

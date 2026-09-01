@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column("phone", sa.String(length=50), nullable=False, server_default=""),
         sa.Column("email", sa.String(length=200), nullable=False, server_default=""),
         sa.Column("logo_initials", sa.String(length=3), nullable=False, server_default=""),
-        sa.Column("brand_color", sa.String(length=7), nullable=False, server_default="#4F46E5"),
+        sa.Column("brand_color", sa.String(length=7), nullable=False, server_default="#EE0033"),
         sa.Column("currency", sa.String(length=10), nullable=False, server_default="TZS"),
         sa.Column("language", sa.String(length=2), nullable=False, server_default="sw"),
         sa.Column("plan_level", sa.String(length=20), nullable=False, server_default="starter"),

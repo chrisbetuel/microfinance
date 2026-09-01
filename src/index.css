@@ -35,21 +35,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Slow drifting zoom for the login backdrop */
-@keyframes lms-kenburns {
-  0% { transform: scale(1) translate3d(0, 0, 0); }
-  100% { transform: scale(1.12) translate3d(-1.5%, -1%, 0); }
-}
-
-.lms-kenburns {
-  animation: lms-kenburns 28s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lms-kenburns { animation: none; }
-}
-
 * {
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
