@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -14,6 +15,7 @@ from lms.models import (
     Application,
     ApprovalDecision,
     Borrower,
+    BorrowerDocument,
     BorrowerHistoryEvent,
     Branch,
     Guarantor,
@@ -257,6 +259,48 @@ class BorrowerDetailView(APIView):
             raise NotFound("Borrower not found")
         return Response(ser.BorrowerSerializer(borrower).data)
 
+    def patch(self, request, borrower_id):
+        lender = request.user.lender
+        borrower = Borrower.objects.filter(pk=borrower_id, lender=lender).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        data = validated(ser.BorrowerUpdateSerializer, request.data)
+        if "branch_id" in data:
+            ensure_branch(lender, data["branch_id"])
+        if "officer_id" in data and data["officer_id"] is not None:
+            ensure_staff_member(lender, data["officer_id"])
+
+        field_map = {
+            "type": "type", "branch_id": "branch_id", "officer_id": "officer_id",
+            "full_name": "full_name", "business_name": "business_name",
+            "registration_number": "registration_number", "tax_id": "tax_id",
+            "sector": "sector", "years_trading": "years_trading",
+            "national_id": "national_id", "phone": "phone", "residence": "residence",
+            "occupation": "occupation", "monthly_income": "monthly_income",
+            "next_of_kin": "next_of_kin",
+        }
+        changes = []
+        for src, dest in field_map.items():
+            if src in data:
+                old_val = getattr(borrower, dest)
+                new_val = data[src]
+                if str(old_val) != str(new_val):
+                    changes.append(f"{src}: {old_val} → {new_val}")
+                setattr(borrower, dest, new_val)
+        borrower.save()
+
+        if changes:
+            with transaction.atomic():
+                BorrowerHistoryEvent.objects.create(
+                    borrower=borrower, label="Profile updated",
+                    detail="; ".join(changes),
+                )
+                audit.record(
+                    request.user, "updated", "borrower", borrower.id,
+                    f'Borrower "{borrower.full_name}" profile updated',
+                )
+        return Response(ser.BorrowerSerializer(borrower_qs(lender).get(pk=borrower.pk)).data)
+
 
 class BorrowerBlacklistView(APIView):
     permission_classes = [IsAuthenticated, section_editor("borrowers")]
@@ -281,6 +325,29 @@ class BorrowerBlacklistView(APIView):
                 "borrower", borrower.id, data.get("reason") or "",
             )
         return Response(ser.BorrowerSerializer(borrower_qs(request.user.lender).get(pk=borrower_id)).data)
+
+
+class BorrowerDocumentUploadView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def post(self, request, borrower_id):
+        lender = request.user.lender
+        borrower = Borrower.objects.filter(pk=borrower_id, lender=lender).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        data = validated(ser.BorrowerDocumentUploadSerializer, request.data)
+        doc = BorrowerDocument.objects.create(
+            borrower=borrower, name=data["name"], type=data["type"],
+        )
+        BorrowerHistoryEvent.objects.create(
+            borrower=borrower, label="Document uploaded",
+            detail=f"{data['name']} ({data['type']})",
+        )
+        audit.record(
+            request.user, "uploaded", "borrower_document", doc.id,
+            f'Document "{data["name"]}" added to {borrower.full_name}',
+        )
+        return Response(ser.BorrowerDocumentSerializer(doc).data, status=status.HTTP_201_CREATED)
 
 
 # --------------------------------------------------------------------- products
@@ -464,6 +531,14 @@ class ApplicationDecisionView(APIView):
             raise PermissionDenied("You created this application — a different approver must decide it")
         if not can_approve_application(request.user.role, application.required_approver_role):
             raise PermissionDenied(f"This amount requires a {application.required_approver_role} decision")
+        if (
+            request.user.approval_limit > 0
+            and float(application.amount) > request.user.approval_limit
+            and request.user.role != StaffRole.LENDER_ADMIN
+        ):
+            raise PermissionDenied(
+                f"Your approval limit ({request.user.approval_limit:,.0f}) is below this application amount ({float(application.amount):,.0f})"
+            )
 
         approved = data["decision"] == "approved"
         with transaction.atomic():
@@ -684,3 +759,138 @@ class NotificationsView(APIView):
         limit = min(int(request.query_params.get("limit", 200)), 1000)
         rows = Notification.objects.filter(lender=request.user.lender)[:limit]
         return Response(ser.NotificationSerializer(rows, many=True).data)
+
+
+# --------------------------------------------------------------- password change
+
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = validated(ser.ChangePasswordSerializer, request.data)
+        if not request.user.check_password(data["current_password"]):
+            raise AuthenticationFailed("Current password is incorrect")
+        request.user.set_password(data["new_password"])
+        request.user.save()
+        audit.record(request.user, "changed_password", "staff", request.user.id, "Password changed")
+        return Response({"detail": "Password updated"})
+
+
+# ----------------------------------------------------------------------- export
+
+class BorrowersExportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        import csv as csv_mod
+
+        rows = Borrower.objects.filter(lender=request.user.lender)
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = "attachment; filename=borrowers.csv"
+        writer = csv_mod.writer(response)
+        writer.writerow([
+            "ID", "Full Name", "Type", "National ID", "Phone", "Branch", "Officer",
+            "Residence", "Occupation", "Monthly Income", "Next of Kin", "Blacklisted", "Created At",
+        ])
+        branch_map = {b.id: b.name for b in Branch.objects.filter(lender=request.user.lender)}
+        staff_map = {s.id: s.name for s in Staff.objects.filter(lender=request.user.lender)}
+        for b in rows:
+            writer.writerow([
+                str(b.id), b.full_name, b.type, b.national_id, b.phone,
+                branch_map.get(b.branch_id, ""), staff_map.get(b.officer_id, ""),
+                b.residence, b.occupation, float(b.monthly_income), b.next_of_kin,
+                "Yes" if b.blacklisted else "No", b.created_at.isoformat(),
+            ])
+        return response
+
+
+class LoansExportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        import csv as csv_mod
+
+        rows = Loan.objects.filter(lender=request.user.lender).select_related("borrower", "product")
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = "attachment; filename=loans.csv"
+        writer = csv_mod.writer(response)
+        writer.writerow([
+            "ID", "Borrower", "Product", "Principal", "Net Disbursed", "Fees Deducted",
+            "Status", "Outstanding", "Days in Arrears", "Arrears Amount",
+            "Disbursement Date", "Closed At", "Closure Reason", "Created At",
+        ])
+        for l in rows:
+            writer.writerow([
+                str(l.id), l.borrower.full_name, l.product.name,
+                float(l.principal), float(l.net_disbursed), float(l.fees_deducted),
+                l.status, float(l.outstanding_balance), l.days_in_arrears,
+                float(l.arrears_amount), l.disbursement_date.isoformat() if l.disbursement_date else "",
+                l.closed_at.isoformat() if l.closed_at else "", l.closure_reason,
+                l.created_at.isoformat(),
+            ])
+        return response
+
+
+class RepaymentsExportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        import csv as csv_mod
+
+        rows = Repayment.objects.filter(lender=request.user.lender).select_related("loan")
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = "attachment; filename=repayments.csv"
+        writer = csv_mod.writer(response)
+        writer.writerow([
+            "ID", "Loan ID", "Amount", "Date", "Channel", "Receipt Number",
+            "Penalty", "Fees", "Interest", "Principal", "Recorded By", "Reversed",
+        ])
+        for r in rows:
+            writer.writerow([
+                str(r.id), str(r.loan_id), float(r.amount), r.date.isoformat(),
+                r.channel, r.receipt_number, float(r.allocation_penalty),
+                float(r.allocation_fees), float(r.allocation_interest),
+                float(r.allocation_principal), r.recorded_by,
+                "Yes" if r.reversed else "No",
+            ])
+        return response
+
+
+# -------------------------------------------------------------------- step-up
+
+class BorrowerStepUpView(APIView):
+    """Check if a borrower qualifies for a step-up (higher ceiling) based on
+    clean repayment history across all their loans."""
+
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def get(self, request, borrower_id):
+        lender = request.user.lender
+        borrower = Borrower.objects.filter(pk=borrower_id, lender=lender).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+
+        loans = Loan.objects.filter(borrower=borrower, lender=lender)
+        active_loans = loans.filter(status=LoanStatus.ACTIVE)
+
+        if not active_loans.exists():
+            return Response({"qualified": False, "reason": "No active loans"})
+
+        has_arrears = active_loans.filter(days_in_arrears__gt=0).exists()
+        max_principal = max(float(l.principal) for l in loans)
+        clean_count = loans.filter(days_in_arrears=0, status=LoanStatus.CLOSED).count()
+
+        qualified = not has_arrears and clean_count >= 2
+        suggested_limit = max_principal * 1.5 if qualified else max_principal
+
+        return Response({
+            "qualified": qualified,
+            "cleanLoans": clean_count,
+            "currentMaxPrincipal": max_principal,
+            "suggestedLimit": round(suggested_limit),
+            "reason": (
+                "Borrower has a clean repayment history and qualifies for a higher ceiling"
+                if qualified
+                else "Borrower has active arrears or insufficient clean loan history"
+            ),
+        })

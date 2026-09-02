@@ -6,6 +6,7 @@ urlpatterns = [
     path("auth/register", v.RegisterView.as_view()),
     path("auth/login", v.LoginView.as_view()),
     path("auth/me", v.MeView.as_view()),
+    path("auth/change-password", v.ChangePasswordView.as_view()),
 
     path("lender", v.LenderView.as_view()),
 
@@ -20,6 +21,8 @@ urlpatterns = [
     path("borrowers", v.BorrowersView.as_view()),
     path("borrowers/<uuid:borrower_id>", v.BorrowerDetailView.as_view()),
     path("borrowers/<uuid:borrower_id>/blacklist", v.BorrowerBlacklistView.as_view()),
+    path("borrowers/<uuid:borrower_id>/documents", v.BorrowerDocumentUploadView.as_view()),
+    path("borrowers/<uuid:borrower_id>/step-up", v.BorrowerStepUpView.as_view()),
 
     path("products", v.ProductsView.as_view()),
     path("products/<uuid:product_id>", v.ProductDetailView.as_view()),
@@ -39,4 +42,8 @@ urlpatterns = [
 
     path("audit", v.AuditView.as_view()),
     path("notifications", v.NotificationsView.as_view()),
+
+    path("export/borrowers", v.BorrowersExportView.as_view()),
+    path("export/loans", v.LoansExportView.as_view()),
+    path("export/repayments", v.RepaymentsExportView.as_view()),
 ]

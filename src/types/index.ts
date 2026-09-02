@@ -259,6 +259,7 @@ export interface Repayment {
     fees: number
     interest: number
     principal: number
+    remainder: number
   }
   recordedBy: string
   reversed: boolean

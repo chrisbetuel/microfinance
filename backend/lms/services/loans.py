@@ -104,6 +104,7 @@ def post_repayment(*, loan, product, amount: float, channel, recorded_by: str) -
         allocation_fees=result.allocation.fees,
         allocation_interest=result.allocation.interest,
         allocation_principal=result.allocation.principal,
+        allocation_remainder=result.remainder,
         recorded_by=recorded_by,
     )
 

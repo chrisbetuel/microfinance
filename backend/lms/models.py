@@ -324,6 +324,7 @@ class Repayment(models.Model):
     allocation_fees = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     allocation_interest = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     allocation_principal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    allocation_remainder = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     recorded_by = models.CharField(max_length=150)
     reversed = models.BooleanField(default=False)
@@ -339,6 +340,7 @@ class Repayment(models.Model):
             "fees": self.allocation_fees,
             "interest": self.allocation_interest,
             "principal": self.allocation_principal,
+            "remainder": self.allocation_remainder,
         }
 
 

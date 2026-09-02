@@ -1,11 +1,14 @@
 import { useState } from 'react'
-import { ShieldCheck, KeyRound } from 'lucide-react'
+import { ShieldCheck, KeyRound, Download } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Card, CardHeader } from '../../components/ui/Card'
 import { Tabs } from '../../components/ui/Tabs'
 import { Table } from '../../components/ui/Table'
 import { Badge } from '../../components/ui/Badge'
+import { Button } from '../../components/ui/Button'
+import { Modal } from '../../components/ui/Modal'
+import { Field, inputClass } from '../../components/ui/Field'
 import { BorrowerLink } from '../../components/ui/BorrowerLink'
 import { STAFF_ROLE_LABELS, type StaffRole } from '../../types'
 import { formatDateTime } from '../../lib/format'
@@ -13,6 +16,7 @@ import { formatDateTime } from '../../lib/format'
 const tabs = [
   { id: 'trail', label: 'Audit trail' },
   { id: 'messages', label: 'Notifications' },
+  { id: 'exports', label: 'Export data' },
   { id: 'permissions', label: 'Permissions by role' },
 ]
 
@@ -39,12 +43,20 @@ export default function SecurityAudit() {
   const notifications = useStore((s) => s.notifications)
   const borrowers = useStore((s) => s.borrowers)
   const lender = useStore((s) => s.lender)
+  const changePassword = useStore((s) => s.changePassword)
+  const [pwOpen, setPwOpen] = useState(false)
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [pwMsg, setPwMsg] = useState('')
+  const [pwBusy, setPwBusy] = useState(false)
+
+  const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '')
 
   return (
     <div>
       <PageHeader title="Security, Access & Audit" subtitle="Controls who can do what, and records everything that happens" />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="flex items-center gap-3">
           <span className="rounded-lg bg-brand-100 p-2 text-brand-600">
             <KeyRound size={18} />
@@ -63,6 +75,19 @@ export default function SecurityAudit() {
             <p className="text-xs text-slate-500">Not by trust — see loan product approval levels</p>
           </div>
         </Card>
+        <button
+          type="button"
+          className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[var(--shadow-card)] transition-shadow hover:shadow-[var(--shadow-card-hover)] text-left"
+          onClick={() => setPwOpen(true)}
+        >
+          <span className="rounded-lg bg-brand-100 p-2 text-brand-600">
+            <KeyRound size={18} />
+          </span>
+          <div>
+            <p className="text-sm font-medium text-slate-800">Change password</p>
+            <p className="text-xs text-slate-500">Update your account password</p>
+          </div>
+        </button>
       </div>
 
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
@@ -111,6 +136,33 @@ export default function SecurityAudit() {
           </div>
         )}
 
+        {tab === 'exports' && (
+          <Card className="max-w-lg">
+            <CardHeader title="Export data" subtitle="Download CSV files for analysis, reporting or backup" />
+            <div className="space-y-3">
+              {[
+                { label: 'Borrowers', path: '/export/borrowers', desc: 'All borrower records with contact details' },
+                { label: 'Loans', path: '/export/loans', desc: 'All loans with status, balances and arrears' },
+                { label: 'Repayments', path: '/export/repayments', desc: 'All repayment records with allocation breakdown' },
+              ].map(({ label, path, desc }) => (
+                <a
+                  key={path}
+                  href={`${apiBase}${path}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 hover:bg-slate-50"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{label}</p>
+                    <p className="text-xs text-slate-400">{desc}</p>
+                  </div>
+                  <Download size={16} className="text-slate-400" />
+                </a>
+              ))}
+            </div>
+          </Card>
+        )}
+
         {tab === 'permissions' && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {Object.entries(permissionMatrix).map(([role, perms]) => (
@@ -126,6 +178,40 @@ export default function SecurityAudit() {
           </div>
         )}
       </div>
+
+      <Modal open={pwOpen} onClose={() => { setPwOpen(false); setPwMsg('') }} title="Change password">
+        <form
+          className="space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            setPwBusy(true)
+            setPwMsg('')
+            try {
+              await changePassword(currentPw, newPw)
+              setPwMsg('Password updated successfully.')
+              setCurrentPw('')
+              setNewPw('')
+            } catch (err) {
+              setPwMsg(err instanceof Error ? err.message : 'Failed to change password')
+            } finally {
+              setPwBusy(false)
+            }
+          }}
+        >
+          <Field label="Current password">
+            <input type="password" required className={inputClass} value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} />
+          </Field>
+          <Field label="New password" hint="Minimum 6 characters">
+            <input type="password" required minLength={6} className={inputClass} value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+          </Field>
+          {pwMsg && (
+            <p className={`text-sm ${pwMsg.includes('success') ? 'text-emerald-700' : 'text-red-700'}`}>{pwMsg}</p>
+          )}
+          <Button type="submit" className="w-full" disabled={pwBusy}>
+            {pwBusy ? 'Updating…' : 'Update password'}
+          </Button>
+        </form>
+      </Modal>
     </div>
   )
 }

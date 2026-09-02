@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ShieldAlert, ShieldCheck, Landmark } from 'lucide-react'
+import { ShieldAlert, ShieldCheck, Landmark, Pencil, Upload } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Card, CardHeader } from '../../components/ui/Card'
@@ -53,6 +53,8 @@ export default function BorrowerDetail() {
   )
   const products = useStore((s) => s.products)
   const setBorrowerBlacklist = useStore((s) => s.setBorrowerBlacklist)
+  const updateBorrower = useStore((s) => s.updateBorrower)
+  const uploadBorrowerDocument = useStore((s) => s.uploadBorrowerDocument)
   const settleLoan = useStore((s) => s.settleLoan)
   const writeOffLoan = useStore((s) => s.writeOffLoan)
   const role = useStore((s) => s.currentUser?.role)
@@ -66,6 +68,23 @@ export default function BorrowerDetail() {
   const [writeOffFor, setWriteOffFor] = useState<Loan | null>(null)
   const [woReason, setWoReason] = useState('')
   const [busy, setBusy] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState({
+    fullName: '',
+    phone: '',
+    residence: '',
+    occupation: '',
+    monthlyIncome: 0,
+    nextOfKin: '',
+    businessName: '',
+    registrationNumber: '',
+    taxId: '',
+    sector: '',
+    yearsTrading: 0,
+  })
+  const [docOpen, setDocOpen] = useState(false)
+  const [docName, setDocName] = useState('')
+  const [docType, setDocType] = useState('National ID')
 
   if (!borrower) return <p className="text-sm text-slate-500">Borrower not found.</p>
 
@@ -79,16 +98,37 @@ export default function BorrowerDetail() {
         title={borrower.fullName}
         subtitle={`${branch?.name ?? ''} · Registered ${formatDate(borrower.createdAt)} · Officer: ${officer?.name ?? '—'}`}
         action={
-          canEdit &&
-          (borrower.blacklisted ? (
-            <Button variant="secondary" icon={<ShieldCheck size={15} />} onClick={() => void setBorrowerBlacklist(borrower.id, false, null)}>
-              Remove from blacklist
-            </Button>
-          ) : (
-            <Button variant="danger" icon={<ShieldAlert size={15} />} onClick={() => setBlOpen(true)}>
-              Blacklist borrower
-            </Button>
-          ))
+          canEdit && (
+            <div className="flex gap-2">
+              <Button variant="secondary" icon={<Pencil size={15} />} onClick={() => {
+                setEditForm({
+                  fullName: borrower.fullName,
+                  phone: borrower.phone,
+                  residence: borrower.residence,
+                  occupation: borrower.occupation,
+                  monthlyIncome: borrower.monthlyIncome,
+                  nextOfKin: borrower.nextOfKin,
+                  businessName: borrower.businessName ?? '',
+                  registrationNumber: borrower.registrationNumber ?? '',
+                  taxId: borrower.taxId ?? '',
+                  sector: borrower.sector ?? '',
+                  yearsTrading: borrower.yearsTrading ?? 0,
+                })
+                setEditOpen(true)
+              }}>
+                Edit
+              </Button>
+              {borrower.blacklisted ? (
+                <Button variant="secondary" icon={<ShieldCheck size={15} />} onClick={() => void setBorrowerBlacklist(borrower.id, false, null)}>
+                  Remove from blacklist
+                </Button>
+              ) : (
+                <Button variant="danger" icon={<ShieldAlert size={15} />} onClick={() => setBlOpen(true)}>
+                  Blacklist borrower
+                </Button>
+              )}
+            </div>
+          )
         }
       />
 
@@ -267,7 +307,16 @@ export default function BorrowerDetail() {
 
         {tab === 'documents' && (
           <Card>
-            <CardHeader title="Documents" />
+            <CardHeader
+              title="Documents"
+              action={
+                canEdit && (
+                  <Button size="sm" icon={<Upload size={14} />} onClick={() => setDocOpen(true)}>
+                    Upload document
+                  </Button>
+                )
+              }
+            />
             {borrower.documents.length === 0 && <p className="text-sm text-slate-400">No documents uploaded.</p>}
             <ul className="divide-y divide-slate-100">
               {borrower.documents.map((d) => (
@@ -377,6 +426,106 @@ export default function BorrowerDetail() {
             </Button>
           </form>
         )}
+      </Modal>
+
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit borrower profile" wide>
+        <form
+          className="space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            setBusy(true)
+            try {
+              await updateBorrower(borrower.id, {
+                fullName: editForm.fullName,
+                phone: editForm.phone,
+                residence: editForm.residence,
+                occupation: editForm.occupation,
+                monthlyIncome: editForm.monthlyIncome,
+                nextOfKin: editForm.nextOfKin,
+                businessName: editForm.businessName || undefined,
+                registrationNumber: editForm.registrationNumber || undefined,
+                taxId: editForm.taxId || undefined,
+                sector: editForm.sector || undefined,
+                yearsTrading: editForm.yearsTrading || undefined,
+              })
+              setEditOpen(false)
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Full name">
+              <input required className={inputClass} value={editForm.fullName} onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })} />
+            </Field>
+            <Field label="Phone">
+              <input required className={inputClass} value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+            </Field>
+            <Field label="Residence">
+              <input className={inputClass} value={editForm.residence} onChange={(e) => setEditForm({ ...editForm, residence: e.target.value })} />
+            </Field>
+            <Field label="Occupation">
+              <input className={inputClass} value={editForm.occupation} onChange={(e) => setEditForm({ ...editForm, occupation: e.target.value })} />
+            </Field>
+            <Field label="Monthly income">
+              <input type="number" className={inputClass} value={editForm.monthlyIncome} onChange={(e) => setEditForm({ ...editForm, monthlyIncome: Number(e.target.value) })} />
+            </Field>
+            <Field label="Next of kin">
+              <input className={inputClass} value={editForm.nextOfKin} onChange={(e) => setEditForm({ ...editForm, nextOfKin: e.target.value })} />
+            </Field>
+            <Field label="Business name">
+              <input className={inputClass} value={editForm.businessName} onChange={(e) => setEditForm({ ...editForm, businessName: e.target.value })} />
+            </Field>
+            <Field label="Registration number">
+              <input className={inputClass} value={editForm.registrationNumber} onChange={(e) => setEditForm({ ...editForm, registrationNumber: e.target.value })} />
+            </Field>
+            <Field label="Tax ID">
+              <input className={inputClass} value={editForm.taxId} onChange={(e) => setEditForm({ ...editForm, taxId: e.target.value })} />
+            </Field>
+            <Field label="Sector">
+              <input className={inputClass} value={editForm.sector} onChange={(e) => setEditForm({ ...editForm, sector: e.target.value })} />
+            </Field>
+          </div>
+          <Button type="submit" className="w-full" disabled={busy}>
+            {busy ? 'Saving…' : 'Save changes'}
+          </Button>
+        </form>
+      </Modal>
+
+      <Modal open={docOpen} onClose={() => setDocOpen(false)} title="Upload document">
+        <form
+          className="space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            if (!docName.trim()) return
+            setBusy(true)
+            try {
+              await uploadBorrowerDocument(borrower.id, docName, docType)
+              setDocOpen(false)
+              setDocName('')
+              setDocType('National ID')
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <Field label="Document name">
+            <input required className={inputClass} value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="e.g. National ID copy, Payslip" />
+          </Field>
+          <Field label="Document type">
+            <select className={inputClass} value={docType} onChange={(e) => setDocType(e.target.value)}>
+              <option value="National ID">National ID</option>
+              <option value="Payslip">Payslip</option>
+              <option value="Business licence">Business licence</option>
+              <option value="Collateral photo">Collateral photo</option>
+              <option value="Guarantor ID">Guarantor ID</option>
+              <option value="Other">Other</option>
+            </select>
+          </Field>
+          <Button type="submit" className="w-full" disabled={busy}>
+            {busy ? 'Uploading…' : 'Upload document'}
+          </Button>
+        </form>
       </Modal>
 
       <p className="mt-8 text-xs text-slate-400">

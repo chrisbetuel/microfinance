@@ -6,7 +6,7 @@ approval routing, four-eyes disbursement, repayment allocation, and an immutable
 audit trail.
 
 - **Frontend** — React + TypeScript + Vite (`src/`)
-- **Backend** — FastAPI + SQLAlchemy (async) + PostgreSQL (`backend/`)
+- **Backend** — Django REST Framework + PostgreSQL (`backend/`)
 
 The two halves share one domain model. The backend serialises camelCase on the
 wire so the API maps directly onto the types in `src/types`.
@@ -21,13 +21,13 @@ cp .env.example .env
 docker compose up --build      # Postgres + API on http://localhost:8000
 ```
 
-`docker compose up` runs `alembic upgrade head` before starting the API. To run
+`docker compose up` runs migrations before starting the API. To run
 against a local Python instead:
 
 ```bash
-pip install -r requirements-dev.txt
-alembic upgrade head
-uvicorn app.main:app --reload
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver
 ```
 
 Tests (SQLite, no database needed):
@@ -61,4 +61,16 @@ borrowers from there. There is no seed data on either side.
 - only a lender administrator manages loan products;
 - an application's creator can never approve it, and its approver can never
   release the funds;
-- only a supervisor can reverse a posted repayment.
+- only a supervisor can reverse a posted repayment;
+- approval limits are enforced — an approver cannot approve above their limit.
+
+## New Features
+
+- **Borrower editing** — edit borrower profiles after registration
+- **Approval limit enforcement** — system enforces staff approval limits
+- **Overpayment tracking** — excess payments are tracked as credit
+- **Document uploads** — attach documents to borrower files
+- **CSV export** — download borrowers, loans and repayments as CSV
+- **Password change** — staff can change their own password
+- **Step-up checking** — borrowers with clean history qualify for higher limits
+- **Security enforcement** — products require guarantors/collateral at intake

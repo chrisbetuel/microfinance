@@ -192,9 +192,32 @@ class BorrowerCreateSerializer(serializers.Serializer):
     guarantors = GuarantorWriteSerializer(many=True, required=False, default=list)
 
 
+class BorrowerUpdateSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=BorrowerType.choices, required=False)
+    branch_id = serializers.UUIDField(required=False)
+    officer_id = serializers.UUIDField(required=False, allow_null=True)
+    full_name = serializers.CharField(required=False)
+    business_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    registration_number = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    tax_id = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    sector = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    years_trading = serializers.IntegerField(required=False, allow_null=True)
+    national_id = serializers.CharField(required=False)
+    phone = serializers.CharField(required=False)
+    residence = serializers.CharField(required=False, allow_blank=True)
+    occupation = serializers.CharField(required=False, allow_blank=True)
+    monthly_income = serializers.FloatField(required=False)
+    next_of_kin = serializers.CharField(required=False, allow_blank=True)
+
+
 class BlacklistSerializer(serializers.Serializer):
     blacklisted = serializers.BooleanField()
     reason = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+
+class BorrowerDocumentUploadSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    type = serializers.CharField()
 
 
 # ----------------------------------------------------------------------- products
@@ -403,3 +426,8 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Notification
         fields = ["id", "lender_id", "borrower_id", "channel", "to", "kind", "body", "status", "error", "created_at", "sent_at"]
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField()
+    new_password = serializers.CharField(min_length=6)

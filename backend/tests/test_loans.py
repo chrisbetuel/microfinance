@@ -72,7 +72,11 @@ def test_repayment_allocates_in_bucket_order(approved_application):
     resp = cashier.post("/repayments", {"loanId": loan["id"], "amount": 248000, "channel": "mobile_money"})
     assert resp.status_code == 201, resp.content
     rp = resp.json()
-    assert rp["allocation"] == {"penalty": 0, "fees": 0, "interest": 48000, "principal": 200000}
+    assert rp["allocation"]["penalty"] == 0
+    assert rp["allocation"]["fees"] == 0
+    assert rp["allocation"]["interest"] == 48000
+    assert rp["allocation"]["principal"] == 200000
+    assert rp["allocation"]["remainder"] == 0
     assert rp["receiptNumber"].startswith("RCT-")
 
     loans = cashier.get("/loans").json()

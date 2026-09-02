@@ -84,7 +84,10 @@ interface StoreState {
       'id' | 'guarantors' | 'documents' | 'createdAt' | 'history' | 'blacklisted' | 'blacklistReason'
     > & { guarantors?: { name: string; nationalId: string; phone: string }[] },
   ) => Promise<string>
+  updateBorrower: (borrowerId: string, patch: Partial<Borrower>) => Promise<void>
   setBorrowerBlacklist: (borrowerId: string, blacklisted: boolean, reason: string | null) => Promise<void>
+  uploadBorrowerDocument: (borrowerId: string, name: string, type: string) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
 
   saveProduct: (product: LoanProduct) => Promise<void>
   toggleProductActive: (productId: string) => Promise<void>
@@ -250,10 +253,27 @@ export const useStore = create<StoreState>()((set, get) => {
       return created.id
     },
 
+    updateBorrower: async (borrowerId, patch) => {
+      const updated = await api.patch<Borrower>(`/borrowers/${borrowerId}`, patch)
+      set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
+      await refreshAudit()
+    },
+
     setBorrowerBlacklist: async (borrowerId, blacklisted, reason) => {
       const updated = await api.post<Borrower>(`/borrowers/${borrowerId}/blacklist`, { blacklisted, reason })
       set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
       await refreshAudit()
+    },
+
+    uploadBorrowerDocument: async (borrowerId, name, type) => {
+      await api.post(`/borrowers/${borrowerId}/documents`, { name, type })
+      const updated = await api.get<Borrower>(`/borrowers/${borrowerId}`)
+      set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
+      await refreshAudit()
+    },
+
+    changePassword: async (currentPassword, newPassword) => {
+      await api.post('/auth/change-password', { currentPassword, newPassword })
     },
 
     saveProduct: async (product) => {
