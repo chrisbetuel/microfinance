@@ -1,48 +1,40 @@
-from httpx import AsyncClient
-
-
-async def test_register_creates_empty_workspace(client: AsyncClient):
-    resp = await client.post(
+def test_register_creates_empty_workspace(client):
+    resp = client.post(
         "/auth/register",
-        json={
-            "lenderName": "Amana",
-            "adminName": "Grace",
-            "adminEmail": "grace@amana.co",
-            "adminPassword": "secret123",
-        },
+        {"lenderName": "Amana", "adminName": "Grace", "adminEmail": "grace@amana.co", "adminPassword": "secret123"},
+        format="json",
     )
     assert resp.status_code == 201
     token = resp.json()["accessToken"]
-    headers = {"Authorization": f"Bearer {token}"}
+    auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
-    me = await client.get("/auth/me", headers=headers)
+    me = client.get("/auth/me", **auth)
     assert me.json()["role"] == "lender_admin"
 
     # Nothing is seeded — the workspace starts empty.
     for path in ("/branches", "/products", "/borrowers", "/applications", "/loans"):
-        listing = await client.get(path, headers=headers)
-        assert listing.json() == [], path
+        assert client.get(path, **auth).json() == [], path
 
-    staff = await client.get("/staff", headers=headers)
-    assert len(staff.json()) == 1
+    assert len(client.get("/staff", **auth).json()) == 1
 
 
-async def test_login_rejects_bad_password(client: AsyncClient):
-    await client.post(
+def test_login_rejects_bad_password(client):
+    client.post(
         "/auth/register",
-        json={"lenderName": "A", "adminName": "B", "adminEmail": "b@a.co", "adminPassword": "rightpass1"},
+        {"lenderName": "A", "adminName": "B", "adminEmail": "b@a.co", "adminPassword": "rightpass1"},
+        format="json",
     )
-    resp = await client.post("/auth/login", json={"email": "b@a.co", "password": "wrongpass"})
+    resp = client.post("/auth/login", {"email": "b@a.co", "password": "wrongpass"}, format="json")
     assert resp.status_code == 401
 
 
-async def test_duplicate_email_rejected(client: AsyncClient):
+def test_duplicate_email_rejected(client):
     payload = {"lenderName": "A", "adminName": "B", "adminEmail": "dup@a.co", "adminPassword": "rightpass1"}
-    await client.post("/auth/register", json=payload)
-    resp = await client.post("/auth/register", json={**payload, "lenderName": "C"})
+    client.post("/auth/register", payload, format="json")
+    resp = client.post("/auth/register", {**payload, "lenderName": "C"}, format="json")
     assert resp.status_code == 409
 
 
-async def test_unauthenticated_is_401(client: AsyncClient):
-    assert (await client.get("/borrowers")).status_code == 401
-    assert (await client.get("/auth/me")).status_code == 401
+def test_unauthenticated_is_401(client):
+    assert client.get("/borrowers").status_code == 401
+    assert client.get("/auth/me").status_code == 401
