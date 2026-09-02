@@ -1,6 +1,7 @@
 import uuid
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 from django.utils import timezone
 
@@ -45,7 +46,7 @@ class Branch(models.Model):
         ordering = ["name"]
 
 
-class Staff(AbstractBaseUser):
+class Staff(AbstractBaseUser, PermissionsMixin):
     id = uuid_pk()
     lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="staff")
     branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
@@ -55,6 +56,8 @@ class Staff(AbstractBaseUser):
     approval_limit = models.IntegerField(default=0)
     phone = models.CharField(max_length=50, blank=True, default="")
     is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)  # Django-admin access, not a lending role
+    date_joined = models.DateTimeField(default=timezone.now)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]
@@ -63,6 +66,10 @@ class Staff(AbstractBaseUser):
 
     class Meta:
         ordering = ["name"]
+        verbose_name_plural = "staff"
+
+    def __str__(self) -> str:
+        return f"{self.name} <{self.email}>"
 
 
 class Holiday(models.Model):

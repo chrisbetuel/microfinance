@@ -10,6 +10,7 @@ from lms import serializers as ser
 from lms.enums import ApplicationStatus, LoanStatus, StaffRole
 from lms.exceptions import Conflict, UnprocessableEntity
 from lms.models import (
+    ApprovalLevel,
     Application,
     ApprovalDecision,
     Borrower,
@@ -20,32 +21,42 @@ from lms.models import (
     Lender,
     Loan,
     LoanProduct,
+    ProductFee,
     Repayment,
     Staff,
 )
 from lms.permissions import (
     IsAdmin,
     IsProductManager,
+    IsSupervisor,
     can_approve_application,
     has_section,
-    is_supervisor,
     section_editor,
 )
 from lms.services import applications as application_service
 from lms.services import audit, loans as loan_service
 from lms.tenancy import ensure_branch, ensure_staff_member
 
+WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 
-def _token_for(staff: Staff) -> str:
+
+def token_for(staff: Staff) -> str:
     return str(AccessToken.for_user(staff))
 
 
-def _validated(serializer_cls, data):
-    s = serializer_cls(data=data)
-    s.is_valid(raise_exception=True)
-    return s.validated_data
+def validated(serializer_cls, data):
+    serializer = serializer_cls(data=data)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
 
 
+class AdminWriteView(APIView):
+    """Reads open to any authenticated user, writes limited to lender admins."""
+
+    def get_permissions(self):
+        if self.request.method in WRITE_METHODS:
+            return [IsAuthenticated(), IsAdmin()]
+        return [IsAuthenticated()]
 
 
 # ------------------------------------------------------------------------- auth
@@ -54,7 +65,7 @@ class RegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        data = _validated(ser.RegisterSerializer, request.data)
+        data = validated(ser.RegisterSerializer, request.data)
         email = data["admin_email"].lower()
         if Staff.objects.filter(email=email).exists():
             raise Conflict("That email is already registered")
@@ -72,20 +83,20 @@ class RegisterView(APIView):
             name=data["admin_name"],
             role=StaffRole.LENDER_ADMIN,
         )
-        return Response({"access_token": _token_for(admin)}, status=status.HTTP_201_CREATED)
+        return Response({"access_token": token_for(admin)}, status=status.HTTP_201_CREATED)
 
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        data = _validated(ser.LoginSerializer, request.data)
+        data = validated(ser.LoginSerializer, request.data)
         staff = Staff.objects.filter(email=data["email"].lower()).first()
         if staff is None or not staff.check_password(data["password"]):
             raise AuthenticationFailed("Incorrect email or password")
         if not staff.is_active:
             raise PermissionDenied("This account has been suspended")
-        return Response({"access_token": _token_for(staff)})
+        return Response({"access_token": token_for(staff)})
 
 
 class MeView(APIView):
@@ -95,16 +106,13 @@ class MeView(APIView):
 
 # ----------------------------------------------------------------------- lender
 
-class LenderView(APIView):
+class LenderView(AdminWriteView):
     def get(self, request):
         return Response(ser.LenderSerializer(request.user.lender).data)
 
     def patch(self, request):
-        if not IsAdmin().has_permission(request, self):
-            raise PermissionDenied(IsAdmin.message)
         lender = request.user.lender
-        data = _validated(ser.LenderUpdateSerializer, request.data)
-        for field, value in data.items():
+        for field, value in validated(ser.LenderUpdateSerializer, request.data).items():
             setattr(lender, field, value)
         lender.save()
         audit.record(request.user, "updated", "lender", lender.id, "Lender profile updated")
@@ -113,34 +121,27 @@ class LenderView(APIView):
 
 # --------------------------------------------------------------------- branches
 
-class BranchesView(APIView):
+class BranchesView(AdminWriteView):
     def get(self, request):
         rows = Branch.objects.filter(lender=request.user.lender)
         return Response(ser.BranchSerializer(rows, many=True).data)
 
     def post(self, request):
-        self._require_admin(request)
-        data = _validated(ser.BranchCreateSerializer, request.data)
+        data = validated(ser.BranchCreateSerializer, request.data)
         branch = Branch.objects.create(lender=request.user.lender, **data)
         audit.record(request.user, "created", "branch", branch.id, f'Branch "{branch.name}" added')
         return Response(ser.BranchSerializer(branch).data, status=status.HTTP_201_CREATED)
 
-    def _require_admin(self, request):
-        if not IsAdmin().has_permission(request, self):
-            raise PermissionDenied(IsAdmin.message)
-
 
 # ------------------------------------------------------------------------ staff
 
-class StaffListView(APIView):
+class StaffListView(AdminWriteView):
     def get(self, request):
         rows = Staff.objects.filter(lender=request.user.lender)
         return Response(ser.StaffSerializer(rows, many=True).data)
 
     def post(self, request):
-        if not IsAdmin().has_permission(request, self):
-            raise PermissionDenied(IsAdmin.message)
-        data = _validated(ser.StaffCreateSerializer, request.data)
+        data = validated(ser.StaffCreateSerializer, request.data)
         email = data["email"].lower()
         if Staff.objects.filter(email=email).exists():
             raise Conflict("That email is already registered")
@@ -162,21 +163,17 @@ class StaffListView(APIView):
         return Response(ser.StaffSerializer(member).data, status=status.HTTP_201_CREATED)
 
 
-class StaffDetailView(APIView):
+class StaffDetailView(AdminWriteView):
     def patch(self, request, staff_id):
-        if not IsAdmin().has_permission(request, self):
-            raise PermissionDenied(IsAdmin.message)
         member = Staff.objects.filter(pk=staff_id, lender=request.user.lender).first()
         if member is None:
             raise NotFound("Staff member not found")
-        data = _validated(ser.StaffUpdateSerializer, request.data)
+        data = validated(ser.StaffUpdateSerializer, request.data)
         if data.get("branch_id") is not None:
             ensure_branch(request.user.lender, data["branch_id"])
-        mapping = {
-            "name": "name", "role": "role", "phone": "phone",
-            "branch_id": "branch_id", "active": "is_active",
-        }
-        for src, dest in mapping.items():
+
+        field_map = {"name": "name", "role": "role", "phone": "phone", "branch_id": "branch_id", "active": "is_active"}
+        for src, dest in field_map.items():
             if src in data:
                 setattr(member, dest, data[src])
         if "approval_limit" in data:
@@ -188,24 +185,20 @@ class StaffDetailView(APIView):
 
 # --------------------------------------------------------------------- holidays
 
-class HolidaysView(APIView):
+class HolidaysView(AdminWriteView):
     def get(self, request):
         rows = Holiday.objects.filter(lender=request.user.lender)
         return Response(ser.HolidaySerializer(rows, many=True).data)
 
     def post(self, request):
-        if not IsAdmin().has_permission(request, self):
-            raise PermissionDenied(IsAdmin.message)
-        data = _validated(ser.HolidayCreateSerializer, request.data)
+        data = validated(ser.HolidayCreateSerializer, request.data)
         holiday = Holiday.objects.create(lender=request.user.lender, **data)
         audit.record(request.user, "created", "holiday", holiday.id, f'Holiday "{holiday.name}" added')
         return Response(ser.HolidaySerializer(holiday).data, status=status.HTTP_201_CREATED)
 
 
-class HolidayDetailView(APIView):
+class HolidayDetailView(AdminWriteView):
     def delete(self, request, holiday_id):
-        if not IsAdmin().has_permission(request, self):
-            raise PermissionDenied(IsAdmin.message)
         holiday = Holiday.objects.filter(pk=holiday_id, lender=request.user.lender).first()
         if holiday is None:
             raise NotFound("Holiday not found")
@@ -219,7 +212,7 @@ class HolidayDetailView(APIView):
 _BORROWER_PREFETCH = ("guarantors", "documents", "history")
 
 
-def _borrower_qs(lender):
+def borrower_qs(lender):
     return Borrower.objects.filter(lender=lender).prefetch_related(*_BORROWER_PREFETCH)
 
 
@@ -227,37 +220,38 @@ class BorrowersView(APIView):
     permission_classes = [IsAuthenticated, section_editor("borrowers")]
 
     def get(self, request):
-        return Response(ser.BorrowerSerializer(_borrower_qs(request.user.lender), many=True).data)
+        return Response(ser.BorrowerSerializer(borrower_qs(request.user.lender), many=True).data)
 
     def post(self, request):
-        data = _validated(ser.BorrowerCreateSerializer, request.data)
+        data = validated(ser.BorrowerCreateSerializer, request.data)
         lender = request.user.lender
-        officer_id = data.get("officer_id") or request.user.id
+        officer_id = data.pop("officer_id", None) or request.user.id
+        guarantors = data.pop("guarantors", [])
         ensure_branch(lender, data["branch_id"])
         ensure_staff_member(lender, officer_id)
 
-        guarantors = data.pop("guarantors", [])
-        data.pop("officer_id", None)
         with transaction.atomic():
-            borrower = Borrower.objects.create(
-                lender=lender, officer_id=officer_id, blacklisted=False, **data
-            )
+            borrower = Borrower.objects.create(lender=lender, officer_id=officer_id, blacklisted=False, **data)
             Guarantor.objects.bulk_create(Guarantor(borrower=borrower, **g) for g in guarantors)
             BorrowerHistoryEvent.objects.create(
                 borrower=borrower, label="File opened",
                 detail=f"Borrower registered by {request.user.name}",
             )
-            audit.record(request.user, "created", "borrower", borrower.id,
-                         f'Borrower "{borrower.full_name}" registered')
-        borrower = _borrower_qs(lender).get(pk=borrower.pk)
-        return Response(ser.BorrowerSerializer(borrower).data, status=status.HTTP_201_CREATED)
+            audit.record(
+                request.user, "created", "borrower", borrower.id,
+                f'Borrower "{borrower.full_name}" registered',
+            )
+        return Response(
+            ser.BorrowerSerializer(borrower_qs(lender).get(pk=borrower.pk)).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class BorrowerDetailView(APIView):
     permission_classes = [IsAuthenticated, section_editor("borrowers")]
 
     def get(self, request, borrower_id):
-        borrower = _borrower_qs(request.user.lender).filter(pk=borrower_id).first()
+        borrower = borrower_qs(request.user.lender).filter(pk=borrower_id).first()
         if borrower is None:
             raise NotFound("Borrower not found")
         return Response(ser.BorrowerSerializer(borrower).data)
@@ -267,10 +261,10 @@ class BorrowerBlacklistView(APIView):
     permission_classes = [IsAuthenticated, section_editor("borrowers")]
 
     def post(self, request, borrower_id):
-        borrower = _borrower_qs(request.user.lender).filter(pk=borrower_id).first()
+        borrower = borrower_qs(request.user.lender).filter(pk=borrower_id).first()
         if borrower is None:
             raise NotFound("Borrower not found")
-        data = _validated(ser.BlacklistSerializer, request.data)
+        data = validated(ser.BlacklistSerializer, request.data)
         with transaction.atomic():
             borrower.blacklisted = data["blacklisted"]
             borrower.blacklist_reason = data.get("reason") if data["blacklisted"] else None
@@ -285,8 +279,7 @@ class BorrowerBlacklistView(APIView):
                 "blacklisted" if data["blacklisted"] else "unblacklisted",
                 "borrower", borrower.id, data.get("reason") or "",
             )
-        borrower = _borrower_qs(request.user.lender).get(pk=borrower_id)
-        return Response(ser.BorrowerSerializer(borrower).data)
+        return Response(ser.BorrowerSerializer(borrower_qs(request.user.lender).get(pk=borrower_id)).data)
 
 
 # --------------------------------------------------------------------- products
@@ -294,16 +287,14 @@ class BorrowerBlacklistView(APIView):
 _PRODUCT_PREFETCH = ("fees", "approval_levels")
 
 
-def _product_qs(lender):
+def product_qs(lender):
     return LoanProduct.objects.filter(lender=lender).prefetch_related(*_PRODUCT_PREFETCH)
 
 
-def _apply_product_write(product, data):
-    from lms.models import ApprovalLevel, ProductFee
-
-    scalar = {k: v for k, v in data.items() if k not in ("fees", "approval_levels")}
-    for field, value in scalar.items():
-        setattr(product, field, value)
+def apply_product_write(product, data):
+    for field, value in data.items():
+        if field not in ("fees", "approval_levels"):
+            setattr(product, field, value)
     product.save()
     product.fees.all().delete()
     product.approval_levels.all().delete()
@@ -321,55 +312,60 @@ def _apply_product_write(product, data):
 
 
 class ProductsView(APIView):
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticated(), IsProductManager()]
+        return [IsAuthenticated()]
+
     def get(self, request):
-        return Response(ser.LoanProductSerializer(_product_qs(request.user.lender), many=True).data)
+        return Response(ser.LoanProductSerializer(product_qs(request.user.lender), many=True).data)
 
     def post(self, request):
-        if not IsProductManager().has_permission(request, self):
-            raise PermissionDenied(IsProductManager.message)
-        data = _validated(ser.LoanProductWriteSerializer, request.data)
+        data = validated(ser.LoanProductWriteSerializer, request.data)
         with transaction.atomic():
             product = LoanProduct(lender=request.user.lender)
-            _apply_product_write(product, data)
+            apply_product_write(product, data)
             audit.record(request.user, "saved", "product", product.id, f'Loan product "{product.name}" saved')
-        product = _product_qs(request.user.lender).get(pk=product.pk)
-        return Response(ser.LoanProductSerializer(product).data, status=status.HTTP_201_CREATED)
+        return Response(
+            ser.LoanProductSerializer(product_qs(request.user.lender).get(pk=product.pk)).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ProductDetailView(APIView):
-    def _get(self, request, product_id):
-        product = _product_qs(request.user.lender).filter(pk=product_id).first()
+    def get_permissions(self):
+        if self.request.method in ("PUT", "PATCH"):
+            return [IsAuthenticated(), IsProductManager()]
+        return [IsAuthenticated()]
+
+    def get_object(self, request, product_id):
+        product = product_qs(request.user.lender).filter(pk=product_id).first()
         if product is None:
             raise NotFound("Loan product not found")
         return product
 
     def get(self, request, product_id):
-        return Response(ser.LoanProductSerializer(self._get(request, product_id)).data)
+        return Response(ser.LoanProductSerializer(self.get_object(request, product_id)).data)
 
     def put(self, request, product_id):
-        if not IsProductManager().has_permission(request, self):
-            raise PermissionDenied(IsProductManager.message)
-        product = self._get(request, product_id)
-        data = _validated(ser.LoanProductWriteSerializer, request.data)
+        product = self.get_object(request, product_id)
+        data = validated(ser.LoanProductWriteSerializer, request.data)
         with transaction.atomic():
-            _apply_product_write(product, data)
+            apply_product_write(product, data)
             audit.record(request.user, "saved", "product", product.id, f'Loan product "{product.name}" saved')
-        return Response(ser.LoanProductSerializer(_product_qs(request.user.lender).get(pk=product_id)).data)
+        return Response(ser.LoanProductSerializer(product_qs(request.user.lender).get(pk=product_id)).data)
 
     def patch(self, request, product_id):
-        if not IsProductManager().has_permission(request, self):
-            raise PermissionDenied(IsProductManager.message)
-        product = self._get(request, product_id)
-        data = _validated(ser.ProductActiveSerializer, request.data)
-        product.active = data["active"]
+        product = self.get_object(request, product_id)
+        product.active = validated(ser.ProductActiveSerializer, request.data)["active"]
         product.save(update_fields=["active"])
         audit.record(request.user, "updated", "product", product.id, "Product active status toggled")
-        return Response(ser.LoanProductSerializer(_product_qs(request.user.lender).get(pk=product_id)).data)
+        return Response(ser.LoanProductSerializer(product_qs(request.user.lender).get(pk=product_id)).data)
 
 
 # ----------------------------------------------------------------- applications
 
-def _application_qs(lender):
+def application_qs(lender):
     return Application.objects.filter(lender=lender).prefetch_related("approvals")
 
 
@@ -377,10 +373,10 @@ class ApplicationsView(APIView):
     permission_classes = [IsAuthenticated, section_editor("applications")]
 
     def get(self, request):
-        return Response(ser.ApplicationSerializer(_application_qs(request.user.lender), many=True).data)
+        return Response(ser.ApplicationSerializer(application_qs(request.user.lender), many=True).data)
 
     def post(self, request):
-        data = _validated(ser.ApplicationCreateSerializer, request.data)
+        data = validated(ser.ApplicationCreateSerializer, request.data)
         lender = request.user.lender
         ensure_branch(lender, data.get("branch_id"))
 
@@ -390,7 +386,7 @@ class ApplicationsView(APIView):
         if borrower.blacklisted:
             raise UnprocessableEntity("Borrower is blacklisted")
 
-        product = _product_qs(lender).filter(pk=data["product_id"]).first()
+        product = product_qs(lender).filter(pk=data["product_id"]).first()
         if product is None:
             raise NotFound("Loan product not found")
         if not product.active:
@@ -436,15 +432,17 @@ class ApplicationsView(APIView):
                 request.user, "created", "application", application.id,
                 f"Application {application.reference} submitted for {borrower.full_name}",
             )
-        application = _application_qs(lender).get(pk=application.pk)
-        return Response(ser.ApplicationSerializer(application).data, status=status.HTTP_201_CREATED)
+        return Response(
+            ser.ApplicationSerializer(application_qs(lender).get(pk=application.pk)).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class ApplicationDetailView(APIView):
     permission_classes = [IsAuthenticated, section_editor("applications")]
 
     def get(self, request, application_id):
-        application = _application_qs(request.user.lender).filter(pk=application_id).first()
+        application = application_qs(request.user.lender).filter(pk=application_id).first()
         if application is None:
             raise NotFound("Application not found")
         return Response(ser.ApplicationSerializer(application).data)
@@ -454,10 +452,10 @@ class ApplicationDecisionView(APIView):
     permission_classes = [IsAuthenticated, section_editor("applications")]
 
     def post(self, request, application_id):
-        application = _application_qs(request.user.lender).filter(pk=application_id).first()
+        application = application_qs(request.user.lender).filter(pk=application_id).first()
         if application is None:
             raise NotFound("Application not found")
-        data = _validated(ser.ApplicationDecisionSerializer, request.data)
+        data = validated(ser.ApplicationDecisionSerializer, request.data)
 
         if application.status not in (ApplicationStatus.PENDING_APPROVAL, ApplicationStatus.SUBMITTED):
             raise Conflict("This application is no longer open for a decision")
@@ -483,8 +481,7 @@ class ApplicationDecisionView(APIView):
                 request.user, data["decision"], "application", application.id,
                 data["comment"] or f"Application {data['decision']} by {request.user.name}",
             )
-        application = _application_qs(request.user.lender).get(pk=application_id)
-        return Response(ser.ApplicationSerializer(application).data)
+        return Response(ser.ApplicationSerializer(application_qs(request.user.lender).get(pk=application_id)).data)
 
 
 class ApplicationDisburseView(APIView):
@@ -492,7 +489,7 @@ class ApplicationDisburseView(APIView):
 
     def post(self, request, application_id):
         lender = request.user.lender
-        application = _application_qs(lender).filter(pk=application_id).first()
+        application = application_qs(lender).filter(pk=application_id).first()
         if application is None:
             raise NotFound("Application not found")
         if application.status != ApplicationStatus.APPROVED:
@@ -500,8 +497,8 @@ class ApplicationDisburseView(APIView):
         if Loan.objects.filter(application=application).exists():
             raise Conflict("This application has already been disbursed")
 
-        product = _product_qs(lender).filter(pk=application.product_id).first()
-        data = _validated(ser.DisburseSerializer, request.data)
+        product = product_qs(lender).filter(pk=application.product_id).first()
+        data = validated(ser.DisburseSerializer, request.data)
         last = application.approvals.all().last()
         approver = last.approver_name if last else "Unknown"
         if approver == request.user.name:
@@ -522,8 +519,10 @@ class ApplicationDisburseView(APIView):
                 request.user, "disbursed", "loan", loan.id,
                 f"{loan.net_disbursed:,.0f} disbursed via {data['channel']} (ref {data['reference']})",
             )
-        loan = Loan.objects.prefetch_related("schedule").get(pk=loan.pk)
-        return Response(ser.LoanSerializer(loan).data, status=status.HTTP_201_CREATED)
+        return Response(
+            ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ------------------------------------------------------------------------ loans
@@ -552,7 +551,7 @@ class RepaymentsView(APIView):
         return Response(ser.RepaymentSerializer(rows, many=True).data)
 
     def post(self, request):
-        data = _validated(ser.RepaymentCreateSerializer, request.data)
+        data = validated(ser.RepaymentCreateSerializer, request.data)
         if data["amount"] <= 0:
             raise UnprocessableEntity("Amount must be positive")
         lender = request.user.lender
@@ -561,7 +560,7 @@ class RepaymentsView(APIView):
             raise NotFound("Loan not found")
         if loan.status != LoanStatus.ACTIVE:
             raise Conflict("This loan is not active")
-        product = _product_qs(lender).filter(pk=loan.product_id).first()
+        product = product_qs(lender).filter(pk=loan.product_id).first()
 
         with transaction.atomic():
             repayment = loan_service.post_repayment(
@@ -576,21 +575,19 @@ class RepaymentsView(APIView):
 
 
 class RepaymentReverseView(APIView):
-    permission_classes = [IsAuthenticated, section_editor("repayments")]
+    permission_classes = [IsAuthenticated, section_editor("repayments"), IsSupervisor]
 
     def post(self, request, repayment_id):
-        if not is_supervisor(request.user.role):
-            raise PermissionDenied("Only a supervisor can reverse a posted payment")
         lender = request.user.lender
         repayment = Repayment.objects.filter(pk=repayment_id, lender=lender).first()
         if repayment is None:
             raise NotFound("Repayment not found")
         if repayment.reversed:
             raise Conflict("This payment has already been reversed")
-        data = _validated(ser.RepaymentReverseSerializer, request.data)
+        data = validated(ser.RepaymentReverseSerializer, request.data)
 
         loan = Loan.objects.filter(pk=repayment.loan_id, lender=lender).prefetch_related("schedule").first()
-        product = _product_qs(lender).filter(pk=loan.product_id).first()
+        product = product_qs(lender).filter(pk=loan.product_id).first()
         loan_repayments = list(Repayment.objects.filter(loan=loan))
 
         with transaction.atomic():

@@ -61,6 +61,13 @@ class IsProductManager(BasePermission):
         return bool(request.user) and can_manage_products(request.user.role)
 
 
+class IsSupervisor(BasePermission):
+    message = "Only a supervisor can reverse a posted payment"
+
+    def has_permission(self, request, view):
+        return bool(request.user) and is_supervisor(request.user.role)
+
+
 class SectionEditor(BasePermission):
     """Write endpoints: caller must be an editor (not an auditor) and have their
     role's section access. Read methods are always allowed for any authenticated user."""
