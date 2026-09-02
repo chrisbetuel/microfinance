@@ -11,46 +11,78 @@ audit trail.
 The two halves share one domain model. The backend serialises camelCase on the
 wire so the API maps directly onto the types in `src/types`.
 
-## Running it
+## Quick start (after cloning)
 
-### Backend
+**Requirements:** Docker + Docker Compose, and Node 20+.
+
+### 1. Backend
 
 ```bash
 cd backend
-cp .env.example .env
-docker compose up --build      # Postgres + API on http://localhost:8000
+docker compose up --build
 ```
 
-`docker compose up` runs migrations before starting the API. To run
-against a local Python instead:
+This starts Postgres and the API on **http://localhost:8000**, runs migrations,
+and seeds a demo workspace ("Sele Microfinance") the first time. Leave it running.
 
-```bash
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver
-```
+> Port 8000 taken? `API_PORT=8001 docker compose up` (then set `VITE_API_PROXY`
+> below to match).
 
-Tests (SQLite, no database needed):
-
-```bash
-cd backend && pytest
-```
-
-### Frontend
+### 2. Frontend (in a second terminal)
 
 ```bash
 npm install
-npm run dev                    # http://localhost:5173, proxies /api -> :8000
+npm run dev
 ```
 
-The dev port and API location can be overridden in `.env` (`FRONTEND_PORT`,
-`VITE_API_BASE_URL`) — needed on machines where 5173 / 8000 are already taken.
-`strictPort` is on, so a clash fails loudly instead of silently moving to
-another port.
+Opens **http://localhost:5173** and proxies `/api` to the backend on :8000.
+If you changed the API port, create a `.env` in the repo root:
 
-Open the app, choose **Register one** to create a lender workspace and its first
-administrator. The workspace starts empty — add branches, staff, products and
-borrowers from there. There is no seed data on either side.
+```
+VITE_API_PROXY=http://localhost:8001
+```
+
+### 3. Sign in
+
+The demo seed created these accounts — all with password **`password123`**:
+
+| Email | Role |
+|---|---|
+| `admin@sele.co` | Lender Administrator |
+| `elias@sele.co` | Branch Manager |
+| `fatuma@sele.co` | Loan Officer |
+| `neema@sele.co` | Credit Committee |
+| `rehema@sele.co` | Cashier |
+| `peter@sele.co` | Auditor |
+
+Or click **Create a workspace** on the login screen to start a fresh, empty
+lender workspace of your own.
+
+## Running without Docker
+
+Backend needs Python 3.12:
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python manage.py migrate
+python manage.py seed_demo          # optional demo data
+python manage.py runserver          # http://localhost:8000
+```
+
+It uses a local SQLite file unless `DATABASE_URL` is set (see `.env.example`).
+
+## Tests & tooling
+
+```bash
+cd backend && pytest                # 35 tests, SQLite, no services needed
+npm run build                       # typecheck + build the frontend
+```
+
+- **API docs (Swagger):** http://localhost:8000/api/docs
+- **Django admin:** http://localhost:8000/admin/ (`python manage.py createsuperuser`)
+- **Daily jobs** (run from cron): `python manage.py age_loans` accrues penalties
+  and refreshes arrears; `python manage.py send_reminders` texts overdue borrowers.
 
 ## Roles
 
