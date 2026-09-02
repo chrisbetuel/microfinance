@@ -6,7 +6,10 @@ export function isSameMonth(iso: string, ref: Date = new Date()): boolean {
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth()
 }
 
+// The daily `age_loans` job maintains loan.daysInArrears; fall back to a
+// client-side estimate for a loan that hasn't been aged yet.
 export function daysLate(loan: Loan, ref: Date = new Date()): number {
+  if (loan.daysInArrears > 0) return loan.daysInArrears
   const firstUnpaidOverdue = loan.schedule.find((i) => i.status !== 'paid' && new Date(i.dueDate) < ref)
   if (!firstUnpaidOverdue) return 0
   return Math.floor((ref.getTime() - new Date(firstUnpaidOverdue.dueDate).getTime()) / 86400000)

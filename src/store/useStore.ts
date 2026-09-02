@@ -9,6 +9,7 @@ import type {
   Lender,
   Loan,
   LoanProduct,
+  Notification,
   Repayment,
   Staff,
   StaffRole,
@@ -64,6 +65,7 @@ interface StoreState {
   loans: Loan[]
   repayments: Repayment[]
   auditLog: AuditLogEntry[]
+  notifications: Notification[]
 
   bootstrap: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
@@ -105,6 +107,8 @@ interface StoreState {
 
   recordRepayment: (loanId: string, amount: number, channel: Repayment['channel']) => Promise<Repayment>
   reverseRepayment: (repaymentId: string, reason: string) => Promise<void>
+  settleLoan: (loanId: string, channel: Repayment['channel']) => Promise<void>
+  writeOffLoan: (loanId: string, reason: string) => Promise<void>
 }
 
 const EMPTY = {
@@ -120,6 +124,7 @@ const EMPTY = {
   loans: [],
   repayments: [],
   auditLog: [],
+  notifications: [],
 }
 
 export const useStore = create<StoreState>()((set, get) => {
@@ -134,10 +139,11 @@ export const useStore = create<StoreState>()((set, get) => {
     } catch (err) {
       if (!(err instanceof ApiError) || err.status !== 403) throw err
     }
+    set({ notifications: await api.get<Notification[]>('/notifications') })
   }
 
   async function hydrate() {
-    const [lender, branches, staff, holidays, products, borrowers, applications, loans, repayments] =
+    const [lender, branches, staff, holidays, products, borrowers, applications, loans, repayments, notifications] =
       await Promise.all([
         api.get<Lender>('/lender'),
         api.get<Branch[]>('/branches'),
@@ -148,6 +154,7 @@ export const useStore = create<StoreState>()((set, get) => {
         api.get<Application[]>('/applications'),
         api.get<Loan[]>('/loans'),
         api.get<Repayment[]>('/repayments'),
+        api.get<Notification[]>('/notifications'),
       ])
     set({
       lender: normalizeLender(lender),
@@ -159,6 +166,7 @@ export const useStore = create<StoreState>()((set, get) => {
       applications,
       loans,
       repayments,
+      notifications,
     })
     await refreshAudit()
   }
@@ -314,6 +322,26 @@ export const useStore = create<StoreState>()((set, get) => {
       const updated = await api.post<Repayment>(`/repayments/${repaymentId}/reverse`, { reason })
       const loans = await api.get<Loan[]>('/loans')
       set((s) => ({ repayments: s.repayments.map((r) => (r.id === repaymentId ? updated : r)), loans }))
+      await refreshAudit()
+    },
+
+    settleLoan: async (loanId, channel) => {
+      await api.post<Loan>(`/loans/${loanId}/settle`, { channel })
+      const [loans, repayments] = await Promise.all([
+        api.get<Loan[]>('/loans'),
+        api.get<Repayment[]>('/repayments'),
+      ])
+      set({ loans, repayments })
+      await refreshAudit()
+    },
+
+    writeOffLoan: async (loanId, reason) => {
+      await api.post<Loan>(`/loans/${loanId}/write-off`, { reason })
+      const [loans, borrowers] = await Promise.all([
+        api.get<Loan[]>('/loans'),
+        api.get<Borrower[]>('/borrowers'),
+      ])
+      set({ loans, borrowers })
       await refreshAudit()
     },
   }

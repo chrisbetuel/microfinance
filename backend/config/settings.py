@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "drf_spectacular",
     "corsheaders",
     "lms",
 ]
@@ -90,7 +91,22 @@ REST_FRAMEWORK = {
     "COERCE_DECIMAL_TO_STRING": False,
     "UNAUTHENTICATED_USER": None,
     "EXCEPTION_HANDLER": "lms.exceptions.exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Loan Management System API",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "CAMELIZE_NAMES": True,
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "drf_spectacular.contrib.djangorestframework_camel_case.camelize_serializer_fields",
+    ],
+}
+
+# Notification delivery: console | logging | noop  (swap for a real gateway in prod)
+LMS_NOTIFICATIONS_BACKEND = env("LMS_NOTIFICATIONS_BACKEND", "console")
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=int(env("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))),

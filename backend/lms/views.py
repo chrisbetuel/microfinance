@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken
 
 from lms import serializers as ser
-from lms.enums import ApplicationStatus, LoanStatus, StaffRole
+from lms.enums import ApplicationStatus, LoanStatus, RepaymentChannel, StaffRole
 from lms.exceptions import Conflict, UnprocessableEntity
 from lms.models import (
     ApprovalLevel,
@@ -33,8 +33,9 @@ from lms.permissions import (
     has_section,
     section_editor,
 )
+from lms.models import Notification
 from lms.services import applications as application_service
-from lms.services import audit, loans as loan_service
+from lms.services import audit, loans as loan_service, notify
 from lms.tenancy import ensure_branch, ensure_staff_member
 
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
@@ -481,6 +482,7 @@ class ApplicationDecisionView(APIView):
                 request.user, data["decision"], "application", application.id,
                 data["comment"] or f"Application {data['decision']} by {request.user.name}",
             )
+        notify.decision(request.user.lender, application.borrower, application)
         return Response(ser.ApplicationSerializer(application_qs(request.user.lender).get(pk=application_id)).data)
 
 
@@ -519,6 +521,7 @@ class ApplicationDisburseView(APIView):
                 request.user, "disbursed", "loan", loan.id,
                 f"{loan.net_disbursed:,.0f} disbursed via {data['channel']} (ref {data['reference']})",
             )
+        notify.disbursed(lender, application.borrower, loan)
         return Response(
             ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data,
             status=status.HTTP_201_CREATED,
@@ -539,6 +542,68 @@ class LoanDetailView(APIView):
         if loan is None:
             raise NotFound("Loan not found")
         return Response(ser.LoanSerializer(loan).data)
+
+
+def _active_loan_or_404(lender, loan_id):
+    loan = Loan.objects.filter(pk=loan_id, lender=lender).prefetch_related("schedule").first()
+    if loan is None:
+        raise NotFound("Loan not found")
+    if loan.status != LoanStatus.ACTIVE:
+        raise Conflict("This loan is not active")
+    return loan
+
+
+class LoanSettleView(APIView):
+    """Record a single payment for the full outstanding balance and close the loan."""
+
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def post(self, request, loan_id):
+        lender = request.user.lender
+        loan = _active_loan_or_404(lender, loan_id)
+        amount = float(loan.outstanding_balance)
+        if amount <= 0:
+            raise Conflict("Nothing outstanding to settle")
+        channel = request.data.get("channel", "cash")
+        if channel not in {c for c, _ in RepaymentChannel.choices}:
+            channel = "cash"
+        product = product_qs(lender).filter(pk=loan.product_id).first()
+        with transaction.atomic():
+            repayment = loan_service.post_repayment(
+                loan=loan, product=product, amount=amount, channel=channel, recorded_by=request.user.name,
+            )
+            loan.refresh_from_db()
+            if loan.status != LoanStatus.ACTIVE:
+                loan.closure_reason = "Early settlement"
+                loan.save(update_fields=["closure_reason"])
+            audit.record(
+                request.user, "settled", "loan", loan.id,
+                f"Early settlement of {amount:,.0f}, receipt {repayment.receipt_number}",
+            )
+        notify.receipt(lender, loan.borrower, repayment)
+        return Response(ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data)
+
+
+class LoanWriteOffView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("repayments"), IsSupervisor]
+
+    def post(self, request, loan_id):
+        lender = request.user.lender
+        loan = _active_loan_or_404(lender, loan_id)
+        reason = validated(ser.WriteOffSerializer, request.data)["reason"]
+        with transaction.atomic():
+            loan_service.write_off(loan=loan, reason=reason, by_name=request.user.name)
+            borrower = loan.borrower
+            borrower.blacklisted = True
+            borrower.blacklist_reason = f"Loan written off: {reason}"
+            borrower.save(update_fields=["blacklisted", "blacklist_reason"])
+            BorrowerHistoryEvent.objects.create(
+                borrower=borrower, label="Loan written off",
+                detail=f"{loan.outstanding_balance:,.0f} written off — {reason}",
+            )
+            audit.record(request.user, "written_off", "loan", loan.id,
+                         f"{loan.outstanding_balance:,.0f} written off: {reason}")
+        return Response(ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data)
 
 
 # -------------------------------------------------------------------- repayments
@@ -571,6 +636,7 @@ class RepaymentsView(APIView):
                 request.user, "recorded", "repayment", repayment.id,
                 f"{data['amount']:,.0f} received via {data['channel']}, receipt {repayment.receipt_number}",
             )
+        notify.receipt(lender, loan.borrower, repayment)
         return Response(ser.RepaymentSerializer(repayment).data, status=status.HTTP_201_CREATED)
 
 
@@ -609,3 +675,12 @@ class AuditView(APIView):
         limit = min(int(request.query_params.get("limit", 500)), 1000)
         rows = request.user.lender.audit_entries.all()[:limit]
         return Response(ser.AuditLogEntrySerializer(rows, many=True).data)
+
+
+# ---------------------------------------------------------------- notifications
+
+class NotificationsView(APIView):
+    def get(self, request):
+        limit = min(int(request.query_params.get("limit", 200)), 1000)
+        rows = Notification.objects.filter(lender=request.user.lender)[:limit]
+        return Response(ser.NotificationSerializer(rows, many=True).data)

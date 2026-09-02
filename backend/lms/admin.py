@@ -15,6 +15,6 @@ class StaffAdmin(admin.ModelAdmin):
 
 for _model in (
     models.Lender, models.Branch, models.Holiday, models.Borrower, models.LoanProduct,
-    models.Application, models.Loan, models.Repayment, models.AuditLogEntry,
+    models.Application, models.Loan, models.Repayment, models.AuditLogEntry, models.Notification,
 ):
     admin.site.register(_model)

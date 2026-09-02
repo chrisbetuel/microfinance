@@ -343,6 +343,7 @@ class LoanSerializer(serializers.ModelSerializer):
         fields = [
             "id", "lender_id", "branch_id", "application_id", "borrower_id", "product_id",
             "principal", "net_disbursed", "fees_deducted", "status", "outstanding_balance",
+            "days_in_arrears", "arrears_amount", "closed_at", "closure_reason",
             "disbursement", "created_at", "schedule",
         ]
 
@@ -353,6 +354,10 @@ class LoanSerializer(serializers.ModelSerializer):
 class DisburseSerializer(serializers.Serializer):
     channel = serializers.ChoiceField(choices=enums.DisbursementChannel.choices)
     reference = serializers.CharField()
+
+
+class WriteOffSerializer(serializers.Serializer):
+    reason = serializers.CharField()
 
 
 # ----------------------------------------------------------------------- repayments
@@ -389,3 +394,12 @@ class AuditLogEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = models.AuditLogEntry
         fields = ["id", "timestamp", "user_id", "user_name", "action", "entity", "entity_id", "details"]
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    lender_id = Uuid()
+    borrower_id = Uuid(allow_null=True)
+
+    class Meta:
+        model = models.Notification
+        fields = ["id", "lender_id", "borrower_id", "channel", "to", "kind", "body", "status", "error", "created_at", "sent_at"]

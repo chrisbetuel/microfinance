@@ -6,13 +6,22 @@ import { Card, CardHeader } from '../../components/ui/Card'
 import { Tabs } from '../../components/ui/Tabs'
 import { Table } from '../../components/ui/Table'
 import { Badge } from '../../components/ui/Badge'
+import { BorrowerLink } from '../../components/ui/BorrowerLink'
 import { STAFF_ROLE_LABELS, type StaffRole } from '../../types'
 import { formatDateTime } from '../../lib/format'
 
 const tabs = [
   { id: 'trail', label: 'Audit trail' },
+  { id: 'messages', label: 'Notifications' },
   { id: 'permissions', label: 'Permissions by role' },
 ]
+
+const kindLabels: Record<string, string> = {
+  receipt: 'Payment receipt',
+  disbursed: 'Disbursement',
+  decision: 'Application decision',
+  arrears_reminder: 'Arrears reminder',
+}
 
 const permissionMatrix: Record<StaffRole, string[]> = {
   platform_admin: ['Create lender accounts', 'Set subscription limits', 'Monitor system health'],
@@ -27,6 +36,9 @@ const permissionMatrix: Record<StaffRole, string[]> = {
 export default function SecurityAudit() {
   const [tab, setTab] = useState('trail')
   const auditLog = useStore((s) => s.auditLog)
+  const notifications = useStore((s) => s.notifications)
+  const borrowers = useStore((s) => s.borrowers)
+  const lender = useStore((s) => s.lender)
 
   return (
     <div>
@@ -68,6 +80,35 @@ export default function SecurityAudit() {
               { header: 'Details', cell: (e) => <span className="text-slate-500">{e.details}</span> },
             ]}
           />
+        )}
+
+        {tab === 'messages' && (
+          <div>
+            <p className="mb-3 text-xs text-slate-500">
+              Outbound SMS to borrowers · {lender.smsBalance.toLocaleString()} credits remaining
+            </p>
+            <Table
+              rowKey={(n) => n.id}
+              rows={notifications}
+              columns={[
+                { header: 'Time', cell: (n) => formatDateTime(n.createdAt) },
+                { header: 'Type', cell: (n) => kindLabels[n.kind] ?? n.kind },
+                {
+                  header: 'Borrower',
+                  cell: (n) => (n.borrowerId ? <BorrowerLink id={n.borrowerId} borrowers={borrowers} /> : n.to),
+                },
+                { header: 'Message', cell: (n) => <span className="text-slate-500">{n.body}</span> },
+                {
+                  header: 'Status',
+                  cell: (n) => (
+                    <Badge tone={n.status === 'sent' ? 'green' : n.status === 'failed' ? 'red' : 'amber'}>
+                      {n.status === 'failed' && n.error ? n.error : n.status}
+                    </Badge>
+                  ),
+                },
+              ]}
+            />
+          </div>
         )}
 
         {tab === 'permissions' && (

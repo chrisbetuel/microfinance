@@ -21,3 +21,8 @@ export function canEditData(role: StaffRole): boolean {
 export function canManageProducts(role: StaffRole): boolean {
   return role === 'lender_admin' || role === 'platform_admin'
 }
+
+// Reversing a posted payment and writing off a loan are supervisor-only actions.
+export function isSupervisor(role: StaffRole): boolean {
+  return role === 'branch_manager' || role === 'lender_admin' || role === 'credit_committee'
+}

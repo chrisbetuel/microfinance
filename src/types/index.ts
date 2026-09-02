@@ -240,6 +240,10 @@ export interface Loan {
     disbursedBy: string
   } | null
   outstandingBalance: number
+  daysInArrears: number
+  arrearsAmount: number
+  closedAt: string | null
+  closureReason: string
   createdAt: string
 }
 
@@ -270,4 +274,17 @@ export interface AuditLogEntry {
   entity: string
   entityId: string
   details: string
+}
+
+export interface Notification {
+  id: string
+  borrowerId: string | null
+  channel: 'sms' | 'email'
+  to: string
+  kind: string
+  body: string
+  status: 'queued' | 'sent' | 'failed'
+  error: string
+  createdAt: string
+  sentAt: string | null
 }

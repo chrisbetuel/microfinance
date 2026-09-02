@@ -28,7 +28,7 @@ class Lender(models.Model):
     plan_level = models.CharField(max_length=20, default="starter")
     staff_limit = models.IntegerField(default=10)
     active_loan_limit = models.IntegerField(default=500)
-    sms_balance = models.IntegerField(default=0)
+    sms_balance = models.IntegerField(default=25)  # trial credit for a new workspace
     sms_sender_name = models.CharField(max_length=11, blank=True, default="")
     sms_sender_approved = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
@@ -264,6 +264,14 @@ class Loan(models.Model):
     disbursement_reference = models.CharField(max_length=100)
     disbursement_approved_by = models.CharField(max_length=150)
     disbursement_disbursed_by = models.CharField(max_length=150)
+
+    # Maintained by the daily `age_loans` job.
+    days_in_arrears = models.IntegerField(default=0)
+    arrears_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    aged_at = models.DateTimeField(null=True, blank=True)
+
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closure_reason = models.CharField(max_length=200, blank=True, default="")
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -347,3 +355,32 @@ class AuditLogEntry(models.Model):
 
     class Meta:
         ordering = ["-timestamp"]
+
+
+class Notification(models.Model):
+    """An outbound message (SMS/email). Written by lms.services.notify; delivered
+    by whichever backend is configured. Kept so the workspace has a message log."""
+
+    class Channel(models.TextChoices):
+        SMS = "sms"
+        EMAIL = "email"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued"
+        SENT = "sent"
+        FAILED = "failed"
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="notifications")
+    borrower = models.ForeignKey(Borrower, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    channel = models.CharField(max_length=10, choices=Channel.choices, default=Channel.SMS)
+    to = models.CharField(max_length=200)
+    kind = models.CharField(max_length=40)  # receipt | disbursed | decision | arrears_reminder ...
+    body = models.TextField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.QUEUED)
+    error = models.CharField(max_length=250, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]

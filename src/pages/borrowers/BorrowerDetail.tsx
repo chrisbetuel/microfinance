@@ -11,7 +11,8 @@ import { Modal } from '../../components/ui/Modal'
 import { Field, inputClass } from '../../components/ui/Field'
 import { formatDate, formatDateTime, formatMoney, initials } from '../../lib/format'
 import { useCanEdit } from '../../lib/useCanEdit'
-import type { ApplicationStatus, DisbursementChannel } from '../../types'
+import { isSupervisor } from '../../lib/permissions'
+import type { ApplicationStatus, DisbursementChannel, Loan, Repayment } from '../../types'
 
 const tabs = [
   { id: 'profile', label: 'Profile' },
@@ -52,10 +53,19 @@ export default function BorrowerDetail() {
   )
   const products = useStore((s) => s.products)
   const setBorrowerBlacklist = useStore((s) => s.setBorrowerBlacklist)
+  const settleLoan = useStore((s) => s.settleLoan)
+  const writeOffLoan = useStore((s) => s.writeOffLoan)
+  const role = useStore((s) => s.currentUser?.role)
   const canEdit = useCanEdit()
+  const canWriteOff = !!role && isSupervisor(role)
   const [tab, setTab] = useState('profile')
   const [blOpen, setBlOpen] = useState(false)
   const [reason, setReason] = useState('')
+  const [settleFor, setSettleFor] = useState<Loan | null>(null)
+  const [settleChannel, setSettleChannel] = useState<Repayment['channel']>('mobile_money')
+  const [writeOffFor, setWriteOffFor] = useState<Loan | null>(null)
+  const [woReason, setWoReason] = useState('')
+  const [busy, setBusy] = useState(false)
 
   if (!borrower) return <p className="text-sm text-slate-500">Borrower not found.</p>
 
@@ -167,7 +177,14 @@ export default function BorrowerDetail() {
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
-                      <Badge tone={loan.status === 'active' ? 'green' : loan.status === 'closed' ? 'slate' : 'amber'}>{loan.status.replace('_', ' ')}</Badge>
+                      {loan.daysInArrears > 0 && (
+                        <Badge tone={loan.daysInArrears > 30 ? 'red' : 'amber'} dot>
+                          {loan.daysInArrears}d overdue · {formatMoney(loan.arrearsAmount)}
+                        </Badge>
+                      )}
+                      <Badge tone={loan.status === 'active' ? 'green' : loan.status === 'closed' ? 'slate' : loan.status === 'written_off' ? 'red' : 'amber'}>
+                        {loan.status.replace('_', ' ')}
+                      </Badge>
                       <span className="text-sm font-medium text-slate-700">{formatMoney(loan.outstandingBalance)} outstanding</span>
                     </div>
                   </div>
@@ -192,6 +209,37 @@ export default function BorrowerDetail() {
                     <p className="mt-2 text-xs text-slate-400">
                       Next due: {formatMoney(nextDue.totalDue)} on {formatDate(nextDue.dueDate)}
                     </p>
+                  )}
+
+                  {loan.status === 'closed' && loan.closureReason && (
+                    <p className="mt-2 text-xs text-slate-400">{loan.closureReason}</p>
+                  )}
+
+                  {loan.status === 'active' && canEdit && (
+                    <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setSettleFor(loan)
+                          setSettleChannel('mobile_money')
+                        }}
+                      >
+                        Settle early — {formatMoney(loan.outstandingBalance)}
+                      </Button>
+                      {canWriteOff && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => {
+                            setWriteOffFor(loan)
+                            setWoReason('')
+                          }}
+                        >
+                          Write off
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </Card>
               )
@@ -266,6 +314,69 @@ export default function BorrowerDetail() {
             Confirm blacklist
           </Button>
         </form>
+      </Modal>
+
+      <Modal open={settleFor !== null} onClose={() => setSettleFor(null)} title="Settle loan early">
+        {settleFor && (
+          <form
+            className="space-y-4"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setBusy(true)
+              try {
+                await settleLoan(settleFor.id, settleChannel)
+                setSettleFor(null)
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <p className="text-sm text-slate-600">
+              Record a single payment of <strong>{formatMoney(settleFor.outstandingBalance)}</strong> to clear the
+              full balance and close this loan.
+            </p>
+            <Field label="Payment channel">
+              <select className={inputClass} value={settleChannel} onChange={(e) => setSettleChannel(e.target.value as Repayment['channel'])}>
+                <option value="mobile_money">Mobile money</option>
+                <option value="bank">Bank transfer</option>
+                <option value="cash">Cash</option>
+                <option value="field">Field collection</option>
+              </select>
+            </Field>
+            <Button type="submit" className="w-full" disabled={busy}>
+              {busy ? 'Processing…' : 'Confirm settlement'}
+            </Button>
+          </form>
+        )}
+      </Modal>
+
+      <Modal open={writeOffFor !== null} onClose={() => setWriteOffFor(null)} title="Write off loan">
+        {writeOffFor && (
+          <form
+            className="space-y-4"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setBusy(true)
+              try {
+                await writeOffLoan(writeOffFor.id, woReason)
+                setWriteOffFor(null)
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+              Writing off removes {formatMoney(writeOffFor.outstandingBalance)} from the performing book and blacklists
+              this borrower. This cannot be undone.
+            </div>
+            <Field label="Reason" hint="Recorded permanently on the loan and the borrower's file">
+              <textarea required rows={3} className={inputClass} value={woReason} onChange={(e) => setWoReason(e.target.value)} />
+            </Field>
+            <Button type="submit" variant="danger" className="w-full" disabled={busy}>
+              {busy ? 'Processing…' : 'Confirm write-off'}
+            </Button>
+          </form>
+        )}
       </Modal>
 
       <p className="mt-8 text-xs text-slate-400">

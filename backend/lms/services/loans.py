@@ -18,9 +18,11 @@ def _outstanding(schedule) -> float:
     return max(sum(float(i.total_due) - float(i.paid_amount) for i in schedule), 0.0)
 
 
-def create_loan_from_application(*, application, product, channel, reference, approved_by, disbursed_by) -> Loan:
+def create_loan_from_application(
+    *, application, product, channel, reference, approved_by, disbursed_by, disbursed_on=None
+) -> Loan:
     amount = float(application.amount)
-    now = timezone.now()
+    now = disbursed_on or timezone.now()
     rows = generate_schedule(product, amount, application.term_instalments, now)
     fees_deducted = total_fee_amount(product, amount, "deducted")
 
@@ -40,6 +42,7 @@ def create_loan_from_application(*, application, product, channel, reference, ap
         disbursement_reference=reference,
         disbursement_approved_by=approved_by,
         disbursement_disbursed_by=disbursed_by,
+        created_at=now,
     )
     ScheduleInstalment.objects.bulk_create(
         ScheduleInstalment(
@@ -82,9 +85,13 @@ def post_repayment(*, loan, product, amount: float, channel, recorded_by: str) -
     _apply_allocation_result(schedule, result.schedule)
 
     loan.outstanding_balance = _outstanding(schedule)
-    if loan.outstanding_balance <= 0 and loan.status == LoanStatus.ACTIVE:
+    fields = ["outstanding_balance", "status"]
+    if loan.outstanding_balance <= 0.01 and loan.status == LoanStatus.ACTIVE:
         loan.status = LoanStatus.CLOSED
-    loan.save(update_fields=["outstanding_balance", "status"])
+        loan.closed_at = timezone.now()
+        loan.closure_reason = "Repaid in full"
+        fields += ["closed_at", "closure_reason"]
+    loan.save(update_fields=fields)
 
     return Repayment.objects.create(
         lender=loan.lender,
@@ -120,4 +127,13 @@ def reverse_repayment(*, repayment, loan, product, loan_repayments, reason: str)
     loan.outstanding_balance = _outstanding(schedule)
     if loan.outstanding_balance > 0 and loan.status == LoanStatus.CLOSED:
         loan.status = LoanStatus.ACTIVE
-    loan.save(update_fields=["outstanding_balance", "status"])
+        loan.closed_at = None
+        loan.closure_reason = ""
+    loan.save(update_fields=["outstanding_balance", "status", "closed_at", "closure_reason"])
+
+
+def write_off(*, loan, reason: str, by_name: str) -> None:
+    loan.status = LoanStatus.WRITTEN_OFF
+    loan.closed_at = timezone.now()
+    loan.closure_reason = f"Written off: {reason}"
+    loan.save(update_fields=["status", "closed_at", "closure_reason"])
