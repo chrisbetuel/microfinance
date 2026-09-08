@@ -75,7 +75,7 @@ It uses a local SQLite file unless `DATABASE_URL` is set (see `.env.example`).
 ## Tests & tooling
 
 ```bash
-cd backend && pytest                # 35 tests, SQLite, no services needed
+cd backend && pytest                # 60 tests, SQLite, no services needed
 npm run build                       # typecheck + build the frontend
 ```
 
@@ -96,13 +96,42 @@ npm run build                       # typecheck + build the frontend
 - only a supervisor can reverse a posted repayment;
 - approval limits are enforced — an approver cannot approve above their limit.
 
-## New Features
+## Features
 
-- **Borrower editing** — edit borrower profiles after registration
-- **Approval limit enforcement** — system enforces staff approval limits
-- **Overpayment tracking** — excess payments are tracked as credit
-- **Document uploads** — attach documents to borrower files
-- **CSV export** — download borrowers, loans and repayments as CSV
-- **Password change** — staff can change their own password
-- **Step-up checking** — borrowers with clean history qualify for higher limits
-- **Security enforcement** — products require guarantors/collateral at intake
+**Lending core**
+
+- Borrower records (individuals and businesses), editable, with guarantors,
+  documents, blacklist and a full history trail
+- Configurable loan products — reducing-balance or flat interest, fees,
+  penalties with a cap, grace periods, allocation order, approval levels,
+  compulsory savings %
+- Application intake with affordability / duplicate / blacklist checks and a
+  score; approval routing by amount; four-eyes disbursement (approver ≠
+  releaser), single or batched with a bank payment-file export
+- Repayment posting with bucket-order allocation, reversal, early settlement,
+  write-off (blacklists the borrower)
+
+**Operations**
+
+- Daily `age_loans` job: marks instalments overdue, accrues capped penalties,
+  maintains days/amount in arrears, closes repaid loans
+- Collections workbench — overdue book, contact log, promise-to-pay
+  (kept/broken/pending), on-the-spot reminder SMS
+- Loan restructuring — reschedule the remaining balance, optionally waive
+  penalties (supervisor only)
+- Compulsory savings accounts — deducted at disbursement, manual
+  deposits/withdrawals, held as partial security
+- Solidarity groups — members with roles, joint-liability arrears view, group
+  loans
+- Cashier cash drawer — daily cash-in/out position and end-of-day count
+- Notifications (SMS/email) with a delivery log; in-app notification bell
+- Immutable audit trail; CSV exports; per-role reports (PAR, aging, officer /
+  branch performance, cash flow)
+
+**App**
+
+- Global command palette (Ctrl/Cmd-K), dark mode, sortable/filterable/paginated
+  tables, toast feedback
+- Multi-tenant: every query is scoped to the caller's lender
+- 7 roles with enforced section access — the auditor can read everything and
+  write nothing
