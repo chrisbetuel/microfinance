@@ -46,6 +46,9 @@ urlpatterns = [
     path("repayments", v.RepaymentsView.as_view()),
     path("repayments/<uuid:repayment_id>/reverse", v.RepaymentReverseView.as_view()),
 
+    path("till/today", v.TillTodayView.as_view()),
+    path("till", v.TillView.as_view()),
+
     path("audit", v.AuditView.as_view()),
     path("notifications", v.NotificationsView.as_view()),
 

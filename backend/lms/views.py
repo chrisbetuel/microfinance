@@ -27,6 +27,7 @@ from lms.models import (
     ProductFee,
     Repayment,
     Staff,
+    TillReconciliation,
 )
 from lms.permissions import (
     IsAdmin,
@@ -44,6 +45,7 @@ from lms.services import (
     loans as loan_service,
     notify,
     restructure as restructure_service,
+    till as till_service,
 )
 from lms.tenancy import ensure_branch, ensure_staff_member
 
@@ -918,6 +920,58 @@ class LoanReminderView(APIView):
                 f"Arrears reminder sent to {loan.borrower.full_name} ({note.status})",
             )
         return Response(ser.NotificationSerializer(note).data, status=status.HTTP_201_CREATED)
+
+
+# ------------------------------------------------------------------- cash drawer
+
+class TillTodayView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def get(self, request):
+        from django.utils import timezone as _tz
+
+        as_of = request.query_params.get("date")
+        business_date = _tz.datetime.fromisoformat(as_of).date() if as_of else _tz.localdate()
+        return Response(till_service.position(request.user.lender, request.user.name, business_date))
+
+
+class TillView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def get(self, request):
+        rows = TillReconciliation.objects.filter(lender=request.user.lender)[:100]
+        return Response(ser.TillReconciliationSerializer(rows, many=True).data)
+
+    def post(self, request):
+        from django.utils import timezone as _tz
+
+        data = validated(ser.TillCloseSerializer, request.data)
+        business_date = data.get("business_date") or _tz.localdate()
+        pos = till_service.position(request.user.lender, request.user.name, business_date)
+        if pos["closed"]:
+            raise Conflict("The drawer is already closed for this date")
+
+        counted = round(float(data["counted_close"]), 2)
+        variance = round(counted - pos["expected_close"], 2)
+        with transaction.atomic():
+            rec = TillReconciliation.objects.create(
+                lender=request.user.lender,
+                branch_id=request.user.branch_id,
+                cashier_name=request.user.name,
+                business_date=business_date,
+                opening_float=pos["opening_float"],
+                cash_in=pos["cash_in"],
+                cash_out=pos["cash_out"],
+                expected_close=pos["expected_close"],
+                counted_close=counted,
+                variance=variance,
+                note=data.get("note") or "",
+            )
+            audit.record(
+                request.user, "closed", "till", rec.id,
+                f"Drawer closed for {business_date}: counted {counted:,.0f}, variance {variance:+,.0f}",
+            )
+        return Response(ser.TillReconciliationSerializer(rec).data, status=status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------- notifications

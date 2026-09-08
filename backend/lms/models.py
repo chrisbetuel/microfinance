@@ -365,6 +365,27 @@ class AuditLogEntry(models.Model):
         ordering = ["-timestamp"]
 
 
+class TillReconciliation(models.Model):
+    """A cashier's end-of-day count of the physical cash drawer."""
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="till_reconciliations")
+    branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="+", null=True, blank=True)
+    cashier_name = models.CharField(max_length=150)
+    business_date = models.DateField()
+    opening_float = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    cash_in = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    cash_out = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    expected_close = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    counted_close = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    variance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    note = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-business_date", "-created_at"]
+
+
 class CollectionActivity(models.Model):
     """A contact attempt, field visit, note or promise-to-pay logged against an
     overdue loan. Drives the collections workbench."""

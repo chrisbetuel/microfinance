@@ -469,6 +469,25 @@ class CollectionActivitySerializer(serializers.ModelSerializer):
         return getattr(obj, "_promise_status", None)
 
 
+class TillReconciliationSerializer(serializers.ModelSerializer):
+    lender_id = Uuid()
+    branch_id = Uuid(allow_null=True)
+
+    class Meta:
+        model = models.TillReconciliation
+        fields = [
+            "id", "lender_id", "branch_id", "cashier_name", "business_date",
+            "opening_float", "cash_in", "cash_out", "expected_close", "counted_close",
+            "variance", "note", "created_at",
+        ]
+
+
+class TillCloseSerializer(serializers.Serializer):
+    business_date = serializers.DateField(required=False, allow_null=True)
+    counted_close = serializers.FloatField()
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
 class CollectionActivityCreateSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=models.CollectionActivity.Kind.choices)
     outcome = serializers.ChoiceField(

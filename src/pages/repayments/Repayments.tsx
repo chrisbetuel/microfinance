@@ -13,11 +13,13 @@ import { BorrowerLink } from '../../components/ui/BorrowerLink'
 import { formatDate, formatDateTime, formatMoney } from '../../lib/format'
 import { allocatePayment } from '../../lib/loanMath'
 import { useCanEdit } from '../../lib/useCanEdit'
+import { CashDrawer } from './CashDrawer'
 import type { Repayment } from '../../types'
 
 const tabs = [
   { id: 'record', label: 'Record repayment' },
   { id: 'register', label: 'Repayment register' },
+  { id: 'drawer', label: 'Cash drawer' },
 ]
 
 const supervisorRoles = new Set(['branch_manager', 'lender_admin', 'credit_committee'])
@@ -28,7 +30,11 @@ export default function Repayments() {
     <div>
       <PageHeader title="Repayments & Collections" subtitle="Money coming in, from any channel, with every balance kept correct" />
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
-      <div className="mt-6">{tab === 'record' ? <RecordRepayment /> : <RepaymentRegister />}</div>
+      <div className="mt-6">
+        {tab === 'record' && <RecordRepayment />}
+        {tab === 'register' && <RepaymentRegister />}
+        {tab === 'drawer' && <CashDrawer />}
+      </div>
     </div>
   )
 }
