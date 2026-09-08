@@ -69,10 +69,11 @@ export default function Login() {
     <div className="relative min-h-screen overflow-hidden">
       <img src={background} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover object-center" />
       {/* literal rgba so the theme's palette remap never touches the scrim */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(3,7,18,0.80),rgba(3,7,18,0.34)_45%,transparent_80%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(3,7,18,0.45),transparent_55%)]" />
+      <div className="absolute inset-0 bg-[rgba(3,7,18,0.55)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_45%,rgba(3,7,18,0.35),transparent_75%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(3,7,18,0.35),transparent_50%)]" />
 
-      <div className="relative z-10 flex min-h-screen flex-col px-6 py-8 sm:px-10 lg:px-[8%] lg:py-12">
+      <div className="relative z-10 flex min-h-screen flex-col items-center px-6 py-8 sm:px-10 lg:py-12">
         {/* header */}
         <header className="flex items-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-600 text-white shadow-lg">
@@ -85,17 +86,15 @@ export default function Login() {
 
         {/* body — hero + card as one centred stack */}
         <div className="flex flex-1 items-center py-10">
-          <div className="w-full max-w-[430px]">
+          <div className="w-full max-w-[420px] text-center">
             <div className="mb-9 hidden lg:block">
-              <h1 className="text-[34px] font-black leading-[1.15] tracking-tight text-balance text-white">
-                Every loan, every payment,
-                <br />
-                one calm workspace.
+              <h1 className="text-[32px] font-black leading-[1.15] tracking-tight text-balance text-white">
+                Every loan, every payment, one calm workspace.
               </h1>
-              <ul className="mt-7 space-y-2.5">
+              <ul className="mt-6 flex flex-col items-center gap-2.5">
                 {points.map((p) => (
-                  <li key={p} className="flex items-start gap-2.5 text-sm text-white/80">
-                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/15">
+                  <li key={p} className="flex items-center gap-2.5 text-sm text-white/80">
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/15">
                       <Check size={11} strokeWidth={3} />
                     </span>
                     {p}
@@ -104,7 +103,7 @@ export default function Login() {
               </ul>
             </div>
 
-            <div className="rounded-2xl bg-white p-7 shadow-[0_30px_80px_-24px_rgba(2,6,23,0.7)] ring-1 ring-black/5 sm:p-8">
+            <div className="rounded-2xl bg-white p-7 text-left shadow-[0_30px_80px_-24px_rgba(2,6,23,0.7)] ring-1 ring-black/5 sm:p-8">
               <h2 className="text-xl font-bold tracking-tight text-slate-900">
                 {mode === 'login' ? 'Welcome back' : 'Create your workspace'}
               </h2>
@@ -217,7 +216,7 @@ export default function Login() {
         </div>
 
         {/* footer */}
-        <footer className="text-xs text-white/50">
+        <footer className="text-center text-xs text-white/50">
           © {new Date().getFullYear()} Sele Microfinance — Loan Management System
         </footer>
       </div>
