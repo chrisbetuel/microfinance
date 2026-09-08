@@ -328,7 +328,8 @@ function DisburseForm({
   const product = products.find((p) => p.id === application.productId)
   const sameDoer = currentStaffName === approverName
   const feesDeducted = product ? totalFeeAmount(product, application.amount, 'deducted') : 0
-  const net = application.amount - feesDeducted
+  const savingsDeducted = product ? (application.amount * (product.compulsorySavingsPercent || 0)) / 100 : 0
+  const net = application.amount - feesDeducted - savingsDeducted
 
   return (
     <div className="space-y-4">
@@ -343,6 +344,12 @@ function DisburseForm({
         <dd className="text-right font-medium">{formatMoney(application.amount, lender.currency)}</dd>
         <dt className="text-slate-400">Fees deducted</dt>
         <dd className="text-right font-medium">{formatMoney(feesDeducted, lender.currency)}</dd>
+        {savingsDeducted > 0 && (
+          <>
+            <dt className="text-slate-400">Compulsory savings</dt>
+            <dd className="text-right font-medium">{formatMoney(savingsDeducted, lender.currency)}</dd>
+          </>
+        )}
         <dt className="text-slate-400">Borrower receives</dt>
         <dd className="text-right font-semibold text-emerald-700">{formatMoney(net, lender.currency)}</dd>
       </dl>

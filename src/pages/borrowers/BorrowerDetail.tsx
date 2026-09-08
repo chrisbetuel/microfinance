@@ -12,12 +12,14 @@ import { Field, inputClass } from '../../components/ui/Field'
 import { formatDate, formatDateTime, formatMoney, initials } from '../../lib/format'
 import { useCanEdit } from '../../lib/useCanEdit'
 import { isSupervisor } from '../../lib/permissions'
+import { BorrowerSavings } from './BorrowerSavings'
 import type { ApplicationStatus, DisbursementChannel, Loan, Repayment } from '../../types'
 
 const tabs = [
   { id: 'profile', label: 'Profile' },
   { id: 'applications', label: 'Applications' },
   { id: 'loans', label: 'Loans & Disbursements' },
+  { id: 'savings', label: 'Savings' },
   { id: 'guarantors', label: 'Guarantors' },
   { id: 'documents', label: 'Documents' },
   { id: 'history', label: 'History' },
@@ -328,6 +330,8 @@ export default function BorrowerDetail() {
             </ul>
           </Card>
         )}
+
+        {tab === 'savings' && <BorrowerSavings borrowerId={borrower.id} canEdit={canEdit} />}
 
         {tab === 'history' && (
           <Card>

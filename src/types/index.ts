@@ -156,6 +156,7 @@ export interface LoanProduct {
   penaltyKind: 'fixed' | 'percent'
   penaltyValue: number
   penaltyCap: number
+  compulsorySavingsPercent: number
   allocationOrder: Array<'penalty' | 'fee' | 'interest' | 'principal'>
   securityRequired: SecurityType[]
   approvalLevels: ApprovalLevel[]
@@ -239,6 +240,7 @@ export interface Loan {
     approvedBy: string
     disbursedBy: string
   } | null
+  savingsDeducted: number
   outstandingBalance: number
   daysInArrears: number
   arrearsAmount: number
@@ -247,6 +249,27 @@ export interface Loan {
   closedAt: string | null
   closureReason: string
   createdAt: string
+}
+
+export type SavingsTransactionKind = 'deposit' | 'withdrawal' | 'loan_deduction' | 'release'
+
+export interface SavingsTransaction {
+  id: string
+  kind: SavingsTransactionKind
+  amount: number
+  balanceAfter: number
+  note: string
+  createdBy: string
+  createdAt: string
+}
+
+export interface SavingsAccount {
+  id: string
+  borrowerId: string
+  borrowerName: string
+  balance: number
+  createdAt: string
+  transactions: SavingsTransaction[]
 }
 
 export interface RestructurePreview {

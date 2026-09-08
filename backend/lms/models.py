@@ -167,6 +167,10 @@ class LoanProduct(models.Model):
     penalty_value = models.DecimalField(max_digits=10, decimal_places=2)
     penalty_cap = models.DecimalField(max_digits=14, decimal_places=2)
 
+    # % of principal taken at disbursement into the borrower's compulsory
+    # savings account (held as partial security, released on loan closure).
+    compulsory_savings_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+
     allocation_order = models.JSONField(default=list)
     security_required = models.JSONField(default=list)
 
@@ -276,6 +280,8 @@ class Loan(models.Model):
     restructure_count = models.IntegerField(default=0)
     restructured_at = models.DateTimeField(null=True, blank=True)
 
+    savings_deducted = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+
     closed_at = models.DateTimeField(null=True, blank=True)
     closure_reason = models.CharField(max_length=200, blank=True, default="")
     created_at = models.DateTimeField(default=timezone.now)
@@ -363,6 +369,36 @@ class AuditLogEntry(models.Model):
 
     class Meta:
         ordering = ["-timestamp"]
+
+
+class SavingsAccount(models.Model):
+    """A borrower's compulsory-savings account. One per borrower per lender."""
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="savings_accounts")
+    borrower = models.OneToOneField(Borrower, on_delete=models.PROTECT, related_name="savings_account")
+    balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    created_at = models.DateTimeField(default=timezone.now)
+
+
+class SavingsTransaction(models.Model):
+    class Kind(models.TextChoices):
+        DEPOSIT = "deposit"
+        WITHDRAWAL = "withdrawal"
+        LOAN_DEDUCTION = "loan_deduction"
+        RELEASE = "release"
+
+    id = uuid_pk()
+    account = models.ForeignKey(SavingsAccount, on_delete=models.CASCADE, related_name="transactions")
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    balance_after = models.DecimalField(max_digits=14, decimal_places=2)
+    note = models.CharField(max_length=250, blank=True, default="")
+    created_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
 
 
 class TillReconciliation(models.Model):

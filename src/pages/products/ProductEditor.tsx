@@ -33,6 +33,7 @@ const emptyProduct = (): LoanProduct => ({
   penaltyKind: 'percent',
   penaltyValue: 1,
   penaltyCap: 50000,
+  compulsorySavingsPercent: 0,
   allocationOrder: ['penalty', 'fee', 'interest', 'principal'],
   securityRequired: ['none'],
   approvalLevels: [{ id: uuid(), minAmount: 0, maxAmount: null, requiredRole: 'branch_manager' }],
@@ -246,6 +247,24 @@ export default function ProductEditor() {
                 <input type="number" className={inputClass} value={product.penaltyCap} onChange={(e) => setProduct({ ...product, penaltyCap: Number(e.target.value) })} />
               </Field>
             </div>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Compulsory savings"
+              subtitle="A percentage of the loan taken into the borrower's savings account at disbursement, held as partial security"
+            />
+            <Field label="Percent of principal" hint="0 to disable">
+              <input
+                type="number"
+                step="0.5"
+                min={0}
+                max={100}
+                className={inputClass}
+                value={product.compulsorySavingsPercent}
+                onChange={(e) => setProduct({ ...product, compulsorySavingsPercent: Number(e.target.value) })}
+              />
+            </Field>
           </Card>
 
           <Card>

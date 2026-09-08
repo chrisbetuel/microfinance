@@ -20,12 +20,16 @@ from lms.models import (
     AuditLogEntry,
     Borrower,
     Branch,
+    CollectionActivity,
     Lender,
     Loan,
     LoanProduct,
     Notification,
     Repayment,
+    SavingsAccount,
+    SavingsTransaction,
     Staff,
+    TillReconciliation,
 )
 from lms.services import aging
 from lms.services import applications as application_service
@@ -39,7 +43,8 @@ PRODUCTS = [
     dict(name="Biashara Working Capital", code="BWC", interest_method="reducing", interest_rate=4,
          interest_period="monthly", repayment_frequency="monthly", min_amount=200_000, max_amount=5_000_000,
          min_term_instalments=3, max_term_instalments=12, penalty_kind="percent", penalty_value=1,
-         penalty_cap=50_000, allocation_order=["penalty", "fee", "interest", "principal"],
+         penalty_cap=50_000, compulsory_savings_percent=5,
+         allocation_order=["penalty", "fee", "interest", "principal"],
          security_required=["guarantors"],
          fees=[dict(name="Processing fee", kind="percent", value=2, timing="deducted"),
                dict(name="Insurance", kind="fixed", value=15_000, timing="added")],
@@ -80,6 +85,10 @@ class Command(BaseCommand):
         """Tear a workspace down in dependency order (several FKs are PROTECT)."""
         Repayment.objects.filter(lender=lender).delete()
         Loan.objects.filter(lender=lender).delete()
+        CollectionActivity.objects.filter(lender=lender).delete()
+        SavingsTransaction.objects.filter(account__lender=lender).delete()
+        SavingsAccount.objects.filter(lender=lender).delete()
+        TillReconciliation.objects.filter(lender=lender).delete()
         ApprovalDecision.objects.filter(application__lender=lender).delete()
         Application.objects.filter(lender=lender).delete()
         Borrower.objects.filter(lender=lender).delete()

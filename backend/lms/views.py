@@ -26,6 +26,8 @@ from lms.models import (
     LoanProduct,
     ProductFee,
     Repayment,
+    SavingsAccount,
+    SavingsTransaction,
     Staff,
     TillReconciliation,
 )
@@ -45,6 +47,7 @@ from lms.services import (
     loans as loan_service,
     notify,
     restructure as restructure_service,
+    savings as savings_service,
     till as till_service,
 )
 from lms.tenancy import ensure_branch, ensure_staff_member
@@ -920,6 +923,50 @@ class LoanReminderView(APIView):
                 f"Arrears reminder sent to {loan.borrower.full_name} ({note.status})",
             )
         return Response(ser.NotificationSerializer(note).data, status=status.HTTP_201_CREATED)
+
+
+# --------------------------------------------------------------------- savings
+
+class SavingsListView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def get(self, request):
+        rows = SavingsAccount.objects.filter(lender=request.user.lender).select_related("borrower")
+        return Response(ser.SavingsAccountListSerializer(rows, many=True).data)
+
+
+class BorrowerSavingsView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def get(self, request, borrower_id):
+        borrower = Borrower.objects.filter(pk=borrower_id, lender=request.user.lender).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        account = savings_service.account_for(request.user.lender, borrower)
+        account = SavingsAccount.objects.prefetch_related("transactions").get(pk=account.pk)
+        return Response(ser.SavingsAccountSerializer(account).data)
+
+    def post(self, request, borrower_id):
+        borrower = Borrower.objects.filter(pk=borrower_id, lender=request.user.lender).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        data = validated(ser.SavingsTransactionCreateSerializer, request.data)
+        account = savings_service.account_for(request.user.lender, borrower)
+        try:
+            with transaction.atomic():
+                txn = savings_service.post(
+                    account, kind=data["kind"], amount=data["amount"],
+                    by_name=request.user.name, note=data.get("note") or "",
+                )
+                audit.record(
+                    request.user, data["kind"], "savings", account.id,
+                    f"{data['kind'].title()} {data['amount']:,.0f} — {borrower.full_name} (balance {account.balance:,.0f})",
+                )
+        except ValueError as exc:
+            raise UnprocessableEntity(str(exc))
+        _ = txn
+        account = SavingsAccount.objects.prefetch_related("transactions").get(pk=account.pk)
+        return Response(ser.SavingsAccountSerializer(account).data, status=status.HTTP_201_CREATED)
 
 
 # ------------------------------------------------------------------- cash drawer

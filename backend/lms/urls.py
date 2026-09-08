@@ -23,6 +23,9 @@ urlpatterns = [
     path("borrowers/<uuid:borrower_id>/blacklist", v.BorrowerBlacklistView.as_view()),
     path("borrowers/<uuid:borrower_id>/documents", v.BorrowerDocumentUploadView.as_view()),
     path("borrowers/<uuid:borrower_id>/step-up", v.BorrowerStepUpView.as_view()),
+    path("borrowers/<uuid:borrower_id>/savings", v.BorrowerSavingsView.as_view()),
+
+    path("savings", v.SavingsListView.as_view()),
 
     path("products", v.ProductsView.as_view()),
     path("products/<uuid:product_id>", v.ProductDetailView.as_view()),

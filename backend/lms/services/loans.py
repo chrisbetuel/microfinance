@@ -10,7 +10,8 @@ from __future__ import annotations
 from django.utils import timezone
 
 from lms.enums import InstalmentStatus, LoanStatus
-from lms.models import Loan, Repayment, ScheduleInstalment
+from lms.models import Loan, Repayment, ScheduleInstalment, SavingsTransaction
+from lms.services import savings as savings_service
 from lms.services.loan_math import allocate_payment, generate_schedule, total_fee_amount
 
 
@@ -25,6 +26,7 @@ def create_loan_from_application(
     now = disbursed_on or timezone.now()
     rows = generate_schedule(product, amount, application.term_instalments, now)
     fees_deducted = total_fee_amount(product, amount, "deducted")
+    savings_deducted = round(amount * float(product.compulsory_savings_percent) / 100, 2)
 
     loan = Loan.objects.create(
         lender=application.lender,
@@ -34,8 +36,9 @@ def create_loan_from_application(
         product=application.product,
         principal=amount,
         schedule_principal=amount,
-        net_disbursed=amount - fees_deducted,
+        net_disbursed=amount - fees_deducted - savings_deducted,
         fees_deducted=fees_deducted,
+        savings_deducted=savings_deducted,
         status=LoanStatus.ACTIVE,
         outstanding_balance=sum(r.total_due for r in rows),
         disbursement_channel=channel,
@@ -61,6 +64,13 @@ def create_loan_from_application(
         )
         for r in rows
     )
+
+    if savings_deducted > 0:
+        account = savings_service.account_for(application.lender, application.borrower)
+        savings_service.post(
+            account, kind=SavingsTransaction.Kind.LOAN_DEDUCTION, amount=savings_deducted,
+            by_name=disbursed_by, note=f"{float(product.compulsory_savings_percent):g}% of loan at disbursement",
+        )
     return loan
 
 

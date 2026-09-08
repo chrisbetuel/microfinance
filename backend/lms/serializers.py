@@ -246,7 +246,7 @@ class LoanProductSerializer(serializers.ModelSerializer):
             "interest_period", "repayment_frequency", "min_amount", "max_amount",
             "min_term_instalments", "max_term_instalments", "step_up_enabled", "grace_period_days",
             "grace_period_applies_to", "penalty_kind", "penalty_value", "penalty_cap",
-            "allocation_order", "security_required", "fees", "approval_levels",
+            "compulsory_savings_percent", "allocation_order", "security_required", "fees", "approval_levels",
         ]
 
 
@@ -285,6 +285,7 @@ class LoanProductWriteSerializer(serializers.Serializer):
     penalty_kind = serializers.CharField()
     penalty_value = serializers.FloatField()
     penalty_cap = serializers.FloatField()
+    compulsory_savings_percent = serializers.FloatField(required=False, default=0)
     allocation_order = serializers.ListField(child=serializers.CharField())
     security_required = serializers.ListField(child=serializers.CharField())
     fees = ProductFeeWriteSerializer(many=True, required=False, default=list)
@@ -365,7 +366,7 @@ class LoanSerializer(serializers.ModelSerializer):
         model = models.Loan
         fields = [
             "id", "lender_id", "branch_id", "application_id", "borrower_id", "product_id",
-            "principal", "net_disbursed", "fees_deducted", "status", "outstanding_balance",
+            "principal", "net_disbursed", "fees_deducted", "savings_deducted", "status", "outstanding_balance",
             "days_in_arrears", "arrears_amount", "restructure_count", "restructured_at",
             "closed_at", "closure_reason", "disbursement", "created_at", "schedule",
         ]
@@ -467,6 +468,39 @@ class CollectionActivitySerializer(serializers.ModelSerializer):
 
     def get_promise_status(self, obj):
         return getattr(obj, "_promise_status", None)
+
+
+class SavingsTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.SavingsTransaction
+        fields = ["id", "kind", "amount", "balance_after", "note", "created_by", "created_at"]
+
+
+class SavingsAccountSerializer(serializers.ModelSerializer):
+    lender_id = Uuid()
+    borrower_id = Uuid()
+    borrower_name = serializers.CharField(source="borrower.full_name", read_only=True)
+    transactions = SavingsTransactionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = models.SavingsAccount
+        fields = ["id", "lender_id", "borrower_id", "borrower_name", "balance", "created_at", "transactions"]
+
+
+class SavingsAccountListSerializer(serializers.ModelSerializer):
+    lender_id = Uuid()
+    borrower_id = Uuid()
+    borrower_name = serializers.CharField(source="borrower.full_name", read_only=True)
+
+    class Meta:
+        model = models.SavingsAccount
+        fields = ["id", "lender_id", "borrower_id", "borrower_name", "balance", "created_at"]
+
+
+class SavingsTransactionCreateSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=["deposit", "withdrawal", "release"])
+    amount = serializers.FloatField(min_value=0.01)
+    note = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class TillReconciliationSerializer(serializers.ModelSerializer):
