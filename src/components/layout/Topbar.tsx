@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
 import { STAFF_ROLE_LABELS } from '../../types'
 import { initials } from '../../lib/format'
+import { NotificationBell } from './NotificationBell'
 
 export function Topbar() {
   const currentUser = useStore((s) => s.currentUser)
@@ -21,6 +22,8 @@ export function Topbar() {
           <MessageSquare size={13} />
           SMS balance: <span className="tabular-nums font-semibold">{lender.smsBalance.toLocaleString()}</span>
         </div>
+
+        <NotificationBell />
 
         <div className="relative">
           <button
