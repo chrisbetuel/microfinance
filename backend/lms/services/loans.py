@@ -33,6 +33,7 @@ def create_loan_from_application(
         borrower=application.borrower,
         product=application.product,
         principal=amount,
+        schedule_principal=amount,
         net_disbursed=amount - fees_deducted,
         fees_deducted=fees_deducted,
         status=LoanStatus.ACTIVE,
@@ -120,7 +121,13 @@ def reverse_repayment(*, repayment, loan, product, loan_repayments, reason: str)
     )
 
     schedule = list(loan.schedule.all())
-    fresh_rows = generate_schedule(product, float(loan.principal), len(schedule), loan.created_at)
+    # A restructure replaces the schedule, so only replay payments made against
+    # the current schedule, off the principal it was built from.
+    origin = loan.restructured_at or loan.created_at
+    if loan.restructure_count > 0:
+        remaining = [r for r in remaining if r.date >= origin]
+    base_principal = float(loan.schedule_principal or loan.principal)
+    fresh_rows = generate_schedule(product, base_principal, len(schedule), origin)
     for r in remaining:
         fresh_rows = allocate_payment(product, fresh_rows, float(r.amount)).schedule
 

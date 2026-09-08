@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Phone,
   MapPin,
@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  CalendarClock,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { PageHeader } from '../../components/ui/PageHeader'
@@ -22,7 +23,9 @@ import { BorrowerLink } from '../../components/ui/BorrowerLink'
 import { formatMoney, formatDateTime } from '../../lib/format'
 import { buildArrearsBook, type ArrearsRow } from '../../lib/collections'
 import { useCanEdit } from '../../lib/useCanEdit'
-import type { CollectionActivityKind, CollectionOutcome } from '../../types'
+import { isSupervisor } from '../../lib/permissions'
+import { api } from '../../lib/api'
+import type { CollectionActivityKind, CollectionOutcome, RestructurePreview } from '../../types'
 
 const kindIcon: Record<CollectionActivityKind, typeof Phone> = {
   call: Phone,
@@ -41,9 +44,12 @@ export default function Collections() {
   const staff = useStore((s) => s.staff)
   const activities = useStore((s) => s.collectionActivities)
   const lender = useStore((s) => s.lender)
+  const role = useStore((s) => s.currentUser?.role)
   const logActivity = useStore((s) => s.logCollectionActivity)
   const sendReminder = useStore((s) => s.sendLoanReminder)
+  const restructureLoan = useStore((s) => s.restructureLoan)
   const canEdit = useCanEdit()
+  const canRestructure = role ? isSupervisor(role) : false
 
   const [openLoanId, setOpenLoanId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -121,6 +127,7 @@ export default function Collections() {
             activities={activities.filter((a) => a.loanId === active.loan.id)}
             currency={lender.currency}
             canEdit={canEdit}
+            canRestructure={canRestructure}
             busy={busy}
             onLog={async (input) => {
               setBusy(true)
@@ -138,9 +145,118 @@ export default function Collections() {
                 setBusy(false)
               }
             }}
+            onRestructure={async (input) => {
+              setBusy(true)
+              try {
+                await restructureLoan(active.loan.id, input)
+                setOpenLoanId(null)
+              } finally {
+                setBusy(false)
+              }
+            }}
           />
         )}
       </Modal>
+    </div>
+  )
+}
+
+function RestructureBlock({
+  row,
+  currency,
+  busy,
+  onRestructure,
+}: {
+  row: ArrearsRow
+  currency: string
+  busy: boolean
+  onRestructure: (input: { newTerm: number; firstDueDate?: string | null; waivePenalties?: boolean; reason?: string }) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [newTerm, setNewTerm] = useState('6')
+  const [firstDueDate, setFirstDueDate] = useState('')
+  const [waivePenalties, setWaivePenalties] = useState(false)
+  const [reason, setReason] = useState('')
+  const [preview, setPreview] = useState<RestructurePreview | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    api
+      .get<RestructurePreview>(`/loans/${row.loan.id}/restructure?waivePenalties=${waivePenalties}`)
+      .then((p) => !cancelled && setPreview(p))
+      .catch(() => !cancelled && setPreview(null))
+    return () => {
+      cancelled = true
+    }
+  }, [open, waivePenalties, row.loan.id])
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex w-full items-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-3 text-sm font-medium text-slate-600 hover:border-brand-400 hover:text-brand-700"
+      >
+        <CalendarClock size={15} />
+        Restructure this loan
+      </button>
+    )
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-brand-200 bg-brand-50/40 p-4">
+      <p className="text-sm font-semibold text-slate-800">Restructure loan</p>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="New term (instalments)">
+          <input type="number" min={1} className={inputClass} value={newTerm} onChange={(e) => setNewTerm(e.target.value)} />
+        </Field>
+        <Field label="First payment due" hint="Optional — defaults to next period">
+          <input type="date" className={inputClass} value={firstDueDate} onChange={(e) => setFirstDueDate(e.target.value)} />
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={waivePenalties} onChange={(e) => setWaivePenalties(e.target.checked)} />
+        Waive accrued penalties as a concession
+      </label>
+      <Field label="Reason">
+        <input className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. business hardship, agreed plan" />
+      </Field>
+
+      {preview && (
+        <div className="rounded-lg bg-white p-3 text-xs ring-1 ring-inset ring-slate-200">
+          <div className="flex justify-between py-0.5">
+            <span className="text-slate-500">Remaining principal</span>
+            <span className="tabular-nums">{formatMoney(preview.remainingPrincipal, currency)}</span>
+          </div>
+          <div className="flex justify-between py-0.5">
+            <span className="text-slate-500">Arrears carried forward</span>
+            <span className="tabular-nums">{formatMoney(preview.carriedArrears, currency)}</span>
+          </div>
+          {preview.penaltyWaived > 0 && (
+            <div className="flex justify-between py-0.5 text-emerald-600">
+              <span>Penalty waived</span>
+              <span className="tabular-nums">−{formatMoney(preview.penaltyWaived, currency)}</span>
+            </div>
+          )}
+          <div className="mt-1 flex justify-between border-t border-slate-100 pt-1 font-semibold text-slate-800">
+            <span>New principal</span>
+            <span className="tabular-nums">{formatMoney(preview.newPrincipal, currency)}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={busy || !Number(newTerm)}
+          onClick={() => onRestructure({ newTerm: Number(newTerm), firstDueDate: firstDueDate || null, waivePenalties, reason: reason.trim() })}
+        >
+          Confirm restructure
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
     </div>
   )
 }
@@ -150,14 +266,17 @@ function LoanCollectionPanel({
   activities,
   currency,
   canEdit,
+  canRestructure,
   busy,
   onLog,
   onRemind,
+  onRestructure,
 }: {
   row: ArrearsRow
   activities: import('../../types').CollectionActivity[]
   currency: string
   canEdit: boolean
+  canRestructure: boolean
   busy: boolean
   onLog: (input: {
     kind: CollectionActivityKind
@@ -167,6 +286,12 @@ function LoanCollectionPanel({
     promisedDate?: string | null
   }) => Promise<void>
   onRemind: () => Promise<void>
+  onRestructure: (input: {
+    newTerm: number
+    firstDueDate?: string | null
+    waivePenalties?: boolean
+    reason?: string
+  }) => Promise<void>
 }) {
   const [kind, setKind] = useState<CollectionActivityKind>('call')
   const [outcome, setOutcome] = useState<CollectionOutcome>('reached')
@@ -204,6 +329,11 @@ function LoanCollectionPanel({
             <p className="text-xs text-slate-500">
               {formatMoney(row.arrears, currency)} in arrears · {formatMoney(row.outstanding, currency)} outstanding
             </p>
+            {row.loan.restructureCount > 0 && (
+              <Badge tone="violet" className="mt-1">
+                Restructured ×{row.loan.restructureCount}
+              </Badge>
+            )}
           </div>
         </div>
       </div>
@@ -285,6 +415,8 @@ function LoanCollectionPanel({
           </Button>
         </div>
       )}
+
+      {canRestructure && <RestructureBlock row={row} currency={currency} busy={busy} onRestructure={onRestructure} />}
 
       <div>
         <p className="mb-2 text-sm font-semibold text-slate-800">Activity timeline</p>

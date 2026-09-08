@@ -38,7 +38,13 @@ from lms.permissions import (
 )
 from lms.models import Notification
 from lms.services import applications as application_service
-from lms.services import audit, collections as collections_service, loans as loan_service, notify
+from lms.services import (
+    audit,
+    collections as collections_service,
+    loans as loan_service,
+    notify,
+    restructure as restructure_service,
+)
 from lms.tenancy import ensure_branch, ensure_staff_member
 
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
@@ -658,6 +664,50 @@ class LoanSettleView(APIView):
             )
         notify.receipt(lender, loan.borrower, repayment)
         return Response(ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data)
+
+
+class LoanRestructureView(APIView):
+    """Reschedule the remaining balance of an active loan — a supervisor concession."""
+
+    permission_classes = [IsAuthenticated, section_editor("collections"), IsSupervisor]
+
+    def get(self, request, loan_id):
+        loan = _active_loan_or_404(request.user.lender, loan_id)
+        waive = request.query_params.get("waivePenalties", "").lower() in ("1", "true", "yes")
+        return Response(restructure_service.preview(loan=loan, waive_penalties=waive))
+
+    def post(self, request, loan_id):
+        lender = request.user.lender
+        loan = _active_loan_or_404(lender, loan_id)
+        data = validated(ser.RestructureSerializer, request.data)
+        product = product_qs(lender).filter(pk=loan.product_id).first()
+        try:
+            with transaction.atomic():
+                loan, figures = restructure_service.restructure_loan(
+                    loan=loan,
+                    product=product,
+                    new_term=data["new_term"],
+                    first_due_date=data.get("first_due_date"),
+                    waive_penalties=data["waive_penalties"],
+                    by_name=request.user.name,
+                )
+                detail = (
+                    f"Rescheduled over {data['new_term']} instalments — "
+                    f"new principal {figures['new_principal']:,.0f}"
+                )
+                if figures["penalty_waived"]:
+                    detail += f", {figures['penalty_waived']:,.0f} penalty waived"
+                if data["reason"]:
+                    detail += f" ({data['reason']})"
+                audit.record(request.user, "restructured", "loan", loan.id, detail)
+                BorrowerHistoryEvent.objects.create(
+                    borrower=loan.borrower, label="Loan restructured", detail=detail,
+                )
+        except ValueError as exc:
+            raise Conflict(str(exc))
+        return Response(
+            ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data
+        )
 
 
 class LoanWriteOffView(APIView):

@@ -366,8 +366,8 @@ class LoanSerializer(serializers.ModelSerializer):
         fields = [
             "id", "lender_id", "branch_id", "application_id", "borrower_id", "product_id",
             "principal", "net_disbursed", "fees_deducted", "status", "outstanding_balance",
-            "days_in_arrears", "arrears_amount", "closed_at", "closure_reason",
-            "disbursement", "created_at", "schedule",
+            "days_in_arrears", "arrears_amount", "restructure_count", "restructured_at",
+            "closed_at", "closure_reason", "disbursement", "created_at", "schedule",
         ]
 
     def get_disbursement(self, obj):
@@ -381,6 +381,13 @@ class DisburseSerializer(serializers.Serializer):
 
 class WriteOffSerializer(serializers.Serializer):
     reason = serializers.CharField()
+
+
+class RestructureSerializer(serializers.Serializer):
+    new_term = serializers.IntegerField(min_value=1, max_value=120)
+    first_due_date = serializers.DateField(required=False, allow_null=True)
+    waive_penalties = serializers.BooleanField(required=False, default=False)
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 # ----------------------------------------------------------------------- repayments

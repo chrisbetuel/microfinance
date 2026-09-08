@@ -117,6 +117,10 @@ interface StoreState {
   reverseRepayment: (repaymentId: string, reason: string) => Promise<void>
   settleLoan: (loanId: string, channel: Repayment['channel']) => Promise<void>
   writeOffLoan: (loanId: string, reason: string) => Promise<void>
+  restructureLoan: (
+    loanId: string,
+    input: { newTerm: number; firstDueDate?: string | null; waivePenalties?: boolean; reason?: string },
+  ) => Promise<void>
 
   logCollectionActivity: (
     loanId: string,
@@ -409,6 +413,18 @@ export const useStore = create<StoreState>()((set, get) => {
       ])
       set({ loans, borrowers })
       toast.success('Loan written off')
+      await refreshAudit()
+    },
+
+    restructureLoan: async (loanId, input) => {
+      await api.post<Loan>(`/loans/${loanId}/restructure`, input)
+      const [loans, repayments, borrowers] = await Promise.all([
+        api.get<Loan[]>('/loans'),
+        api.get<Repayment[]>('/repayments'),
+        api.get<Borrower[]>('/borrowers'),
+      ])
+      set({ loans, repayments, borrowers })
+      toast.success('Loan restructured')
       await refreshAudit()
     },
 

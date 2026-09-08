@@ -270,6 +270,12 @@ class Loan(models.Model):
     arrears_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     aged_at = models.DateTimeField(null=True, blank=True)
 
+    # Principal the *current* schedule was generated from (= principal at
+    # disbursement; changes when the loan is restructured).
+    schedule_principal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    restructure_count = models.IntegerField(default=0)
+    restructured_at = models.DateTimeField(null=True, blank=True)
+
     closed_at = models.DateTimeField(null=True, blank=True)
     closure_reason = models.CharField(max_length=200, blank=True, default="")
     created_at = models.DateTimeField(default=timezone.now)

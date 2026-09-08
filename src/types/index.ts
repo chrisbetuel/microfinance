@@ -242,9 +242,18 @@ export interface Loan {
   outstandingBalance: number
   daysInArrears: number
   arrearsAmount: number
+  restructureCount: number
+  restructuredAt: string | null
   closedAt: string | null
   closureReason: string
   createdAt: string
+}
+
+export interface RestructurePreview {
+  remainingPrincipal: number
+  carriedArrears: number
+  penaltyWaived: number
+  newPrincipal: number
 }
 
 export interface Repayment {
