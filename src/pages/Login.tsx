@@ -5,7 +5,7 @@ import { Lock, Mail, Send } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { Button } from '../components/ui/Button'
 import { api, ApiError, setToken } from '../lib/api'
-import background from '../assets/login/viettel-hq.jpg'
+import background from '../assets/login/microfinance-bg.svg'
 
 const fieldIcon = 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400'
 const fieldInput =
@@ -55,7 +55,7 @@ export default function Login() {
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-slate-900">
       {/* full-bleed background */}
       <img src={background} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover object-center" />
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-900/30 via-transparent to-slate-900/40" />
+      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/50 via-transparent to-transparent" />
 
       {/* centred login card */}
       <div className="relative flex flex-1 items-center justify-center px-4 py-10">
