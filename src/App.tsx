@@ -17,6 +17,7 @@ import DisbursementQueue from './pages/disbursement/DisbursementQueue'
 import Repayments from './pages/repayments/Repayments'
 import SecurityAudit from './pages/security/SecurityAudit'
 import Reports from './pages/reports/Reports'
+import Collections from './pages/collections/Collections'
 
 function LoadingScreen() {
   return (
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/applications/:id" element={<ApplicationDetail />} />
             <Route path="/disbursement" element={<DisbursementQueue />} />
             <Route path="/repayments" element={<Repayments />} />
+            <Route path="/collections" element={<Collections />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/security" element={<SecurityAudit />} />
           </Route>

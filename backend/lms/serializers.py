@@ -431,3 +431,37 @@ class NotificationSerializer(serializers.ModelSerializer):
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField()
     new_password = serializers.CharField(min_length=6)
+
+
+# --------------------------------------------------------------------- collections
+
+class CollectionActivitySerializer(serializers.ModelSerializer):
+    lender_id = Uuid()
+    loan_id = Uuid()
+    borrower_id = Uuid()
+    promise_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.CollectionActivity
+        fields = [
+            "id", "lender_id", "loan_id", "borrower_id", "kind", "outcome", "note",
+            "promised_amount", "promised_date", "promise_status", "created_by", "created_at",
+        ]
+
+    def get_promise_status(self, obj):
+        return getattr(obj, "_promise_status", None)
+
+
+class CollectionActivityCreateSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=models.CollectionActivity.Kind.choices)
+    outcome = serializers.ChoiceField(
+        choices=models.CollectionActivity.Outcome.choices, required=False, allow_blank=True, default=""
+    )
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+    promised_amount = serializers.FloatField(required=False, allow_null=True)
+    promised_date = serializers.DateField(required=False, allow_null=True)
+
+    def validate(self, data):
+        if data["kind"] == "promise" and not data.get("promised_amount"):
+            raise serializers.ValidationError("A promise needs a promised amount")
+        return data

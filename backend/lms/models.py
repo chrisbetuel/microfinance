@@ -359,6 +359,41 @@ class AuditLogEntry(models.Model):
         ordering = ["-timestamp"]
 
 
+class CollectionActivity(models.Model):
+    """A contact attempt, field visit, note or promise-to-pay logged against an
+    overdue loan. Drives the collections workbench."""
+
+    class Kind(models.TextChoices):
+        CALL = "call"
+        VISIT = "visit"
+        MESSAGE = "message"
+        NOTE = "note"
+        PROMISE = "promise"
+
+    class Outcome(models.TextChoices):
+        REACHED = "reached"
+        NO_ANSWER = "no_answer"
+        PROMISED = "promised"
+        DISPUTED = "disputed"
+        PAID = "paid"
+        OTHER = "other"
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="collection_activities")
+    loan = models.ForeignKey(Loan, on_delete=models.CASCADE, related_name="collection_activities")
+    borrower = models.ForeignKey(Borrower, on_delete=models.PROTECT, related_name="+")
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    outcome = models.CharField(max_length=12, choices=Outcome.choices, blank=True, default="")
+    note = models.TextField(blank=True, default="")
+    promised_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    promised_date = models.DateField(null=True, blank=True)
+    created_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
 class Notification(models.Model):
     """An outbound message (SMS/email). Written by lms.services.notify; delivered
     by whichever backend is configured. Kept so the workspace has a message log."""

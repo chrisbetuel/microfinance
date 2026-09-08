@@ -12,13 +12,13 @@ R = StaffRole
 
 # Which resource sections each role may access at all.
 SECTION_ACCESS: dict[str, set[str]] = {
-    R.PLATFORM_ADMIN: {"lender", "borrowers", "products", "applications", "disbursement", "repayments", "audit"},
-    R.LENDER_ADMIN: {"lender", "borrowers", "products", "applications", "disbursement", "repayments", "audit"},
-    R.BRANCH_MANAGER: {"borrowers", "products", "applications", "disbursement", "repayments"},
-    R.LOAN_OFFICER: {"borrowers", "applications", "repayments"},
+    R.PLATFORM_ADMIN: {"lender", "borrowers", "products", "applications", "disbursement", "repayments", "collections", "audit"},
+    R.LENDER_ADMIN: {"lender", "borrowers", "products", "applications", "disbursement", "repayments", "collections", "audit"},
+    R.BRANCH_MANAGER: {"borrowers", "products", "applications", "disbursement", "repayments", "collections"},
+    R.LOAN_OFFICER: {"borrowers", "applications", "repayments", "collections"},
     R.CREDIT_COMMITTEE: {"borrowers", "applications"},
-    R.CASHIER: {"borrowers", "disbursement", "repayments"},
-    R.AUDITOR: {"lender", "borrowers", "products", "applications", "disbursement", "repayments", "audit"},
+    R.CASHIER: {"borrowers", "disbursement", "repayments", "collections"},
+    R.AUDITOR: {"lender", "borrowers", "products", "applications", "disbursement", "repayments", "collections", "audit"},
 }
 
 SUPERVISOR_ROLES = {R.BRANCH_MANAGER, R.LENDER_ADMIN, R.CREDIT_COMMITTEE}

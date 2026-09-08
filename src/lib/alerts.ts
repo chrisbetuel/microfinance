@@ -66,8 +66,8 @@ export function buildAlerts(params: {
       key: `overdue:${overdue.length}`,
       tone: 'red',
       title: `${overdue.length} loan${overdue.length > 1 ? 's' : ''} in arrears`,
-      detail: 'Review the at-risk register',
-      href: '/reports',
+      detail: 'Work the collections queue',
+      href: '/collections',
     })
   }
 

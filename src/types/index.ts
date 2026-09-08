@@ -289,3 +289,20 @@ export interface Notification {
   createdAt: string
   sentAt: string | null
 }
+
+export type CollectionActivityKind = 'call' | 'visit' | 'message' | 'note' | 'promise'
+export type CollectionOutcome = '' | 'reached' | 'no_answer' | 'promised' | 'disputed' | 'paid' | 'other'
+
+export interface CollectionActivity {
+  id: string
+  loanId: string
+  borrowerId: string
+  kind: CollectionActivityKind
+  outcome: CollectionOutcome
+  note: string
+  promisedAmount: number | null
+  promisedDate: string | null
+  promiseStatus: 'kept' | 'broken' | 'pending' | null
+  createdBy: string
+  createdAt: string
+}

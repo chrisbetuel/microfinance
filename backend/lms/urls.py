@@ -36,6 +36,10 @@ urlpatterns = [
     path("loans/<uuid:loan_id>", v.LoanDetailView.as_view()),
     path("loans/<uuid:loan_id>/settle", v.LoanSettleView.as_view()),
     path("loans/<uuid:loan_id>/write-off", v.LoanWriteOffView.as_view()),
+    path("loans/<uuid:loan_id>/collection-activities", v.LoanCollectionActivityView.as_view()),
+    path("loans/<uuid:loan_id>/send-reminder", v.LoanReminderView.as_view()),
+
+    path("collection-activities", v.CollectionActivitiesView.as_view()),
 
     path("repayments", v.RepaymentsView.as_view()),
     path("repayments/<uuid:repayment_id>/reverse", v.RepaymentReverseView.as_view()),

@@ -18,6 +18,7 @@ from lms.models import (
     BorrowerDocument,
     BorrowerHistoryEvent,
     Branch,
+    CollectionActivity,
     Guarantor,
     Holiday,
     Lender,
@@ -37,7 +38,7 @@ from lms.permissions import (
 )
 from lms.models import Notification
 from lms.services import applications as application_service
-from lms.services import audit, loans as loan_service, notify
+from lms.services import audit, collections as collections_service, loans as loan_service, notify
 from lms.tenancy import ensure_branch, ensure_staff_member
 
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
@@ -750,6 +751,83 @@ class AuditView(APIView):
         limit = min(int(request.query_params.get("limit", 500)), 1000)
         rows = request.user.lender.audit_entries.all()[:limit]
         return Response(ser.AuditLogEntrySerializer(rows, many=True).data)
+
+
+# ------------------------------------------------------------------ collections
+
+def _attach_promise_status(activities, lender):
+    """Resolve promise-to-pay status for each activity in bulk."""
+    loan_ids = {a.loan_id for a in activities}
+    reps_by_loan: dict = {}
+    for r in Repayment.objects.filter(lender=lender, loan_id__in=loan_ids):
+        reps_by_loan.setdefault(r.loan_id, []).append(r)
+    for a in activities:
+        a._promise_status = collections_service.promise_status(a, reps_by_loan.get(a.loan_id, []))
+    return activities
+
+
+class CollectionActivitiesView(APIView):
+    """Every collection activity for the workspace — the workbench joins these
+    onto the loans it already has client-side."""
+
+    def get(self, request):
+        rows = list(CollectionActivity.objects.filter(lender=request.user.lender))
+        _attach_promise_status(rows, request.user.lender)
+        return Response(ser.CollectionActivitySerializer(rows, many=True).data)
+
+
+class LoanCollectionActivityView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("collections")]
+
+    def post(self, request, loan_id):
+        lender = request.user.lender
+        loan = Loan.objects.filter(pk=loan_id, lender=lender).select_related("borrower").first()
+        if loan is None:
+            raise NotFound("Loan not found")
+        data = validated(ser.CollectionActivityCreateSerializer, request.data)
+        with transaction.atomic():
+            activity = CollectionActivity.objects.create(
+                lender=lender,
+                loan=loan,
+                borrower=loan.borrower,
+                kind=data["kind"],
+                outcome=data.get("outcome") or "",
+                note=data.get("note") or "",
+                promised_amount=data.get("promised_amount"),
+                promised_date=data.get("promised_date"),
+                created_by=request.user.name,
+            )
+            label = "Promise to pay" if data["kind"] == "promise" else data["kind"].title()
+            audit.record(
+                request.user, "logged", "collection_activity", activity.id,
+                f"{label} on {loan.borrower.full_name}'s loan",
+            )
+        _attach_promise_status([activity], lender)
+        return Response(ser.CollectionActivitySerializer(activity).data, status=status.HTTP_201_CREATED)
+
+
+class LoanReminderView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("collections")]
+
+    def post(self, request, loan_id):
+        lender = request.user.lender
+        loan = Loan.objects.filter(pk=loan_id, lender=lender).select_related("borrower").first()
+        if loan is None:
+            raise NotFound("Loan not found")
+        if loan.status != LoanStatus.ACTIVE or loan.days_in_arrears <= 0:
+            raise Conflict("This loan is not in arrears")
+        note = notify.arrears_reminder(lender, loan.borrower, loan)
+        with transaction.atomic():
+            CollectionActivity.objects.create(
+                lender=lender, loan=loan, borrower=loan.borrower, kind="message",
+                outcome="reached" if note.status == "sent" else "other",
+                note=f"Arrears reminder SMS ({note.status})", created_by=request.user.name,
+            )
+            audit.record(
+                request.user, "reminded", "loan", loan.id,
+                f"Arrears reminder sent to {loan.borrower.full_name} ({note.status})",
+            )
+        return Response(ser.NotificationSerializer(note).data, status=status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------- notifications

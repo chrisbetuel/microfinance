@@ -4,6 +4,9 @@ import type {
   AuditLogEntry,
   Borrower,
   Branch,
+  CollectionActivity,
+  CollectionActivityKind,
+  CollectionOutcome,
   DisbursementChannel,
   Holiday,
   Lender,
@@ -67,6 +70,7 @@ interface StoreState {
   repayments: Repayment[]
   auditLog: AuditLogEntry[]
   notifications: Notification[]
+  collectionActivities: CollectionActivity[]
 
   bootstrap: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
@@ -113,6 +117,18 @@ interface StoreState {
   reverseRepayment: (repaymentId: string, reason: string) => Promise<void>
   settleLoan: (loanId: string, channel: Repayment['channel']) => Promise<void>
   writeOffLoan: (loanId: string, reason: string) => Promise<void>
+
+  logCollectionActivity: (
+    loanId: string,
+    input: {
+      kind: CollectionActivityKind
+      outcome?: CollectionOutcome
+      note?: string
+      promisedAmount?: number | null
+      promisedDate?: string | null
+    },
+  ) => Promise<void>
+  sendLoanReminder: (loanId: string) => Promise<void>
 }
 
 const EMPTY = {
@@ -129,6 +145,7 @@ const EMPTY = {
   repayments: [],
   auditLog: [],
   notifications: [],
+  collectionActivities: [],
 }
 
 export const useStore = create<StoreState>()((set, get) => {
@@ -147,19 +164,31 @@ export const useStore = create<StoreState>()((set, get) => {
   }
 
   async function hydrate() {
-    const [lender, branches, staff, holidays, products, borrowers, applications, loans, repayments, notifications] =
-      await Promise.all([
-        api.get<Lender>('/lender'),
-        api.get<Branch[]>('/branches'),
-        api.get<Staff[]>('/staff'),
-        api.get<Holiday[]>('/holidays'),
-        api.get<LoanProduct[]>('/products'),
-        api.get<Borrower[]>('/borrowers'),
-        api.get<Application[]>('/applications'),
-        api.get<Loan[]>('/loans'),
-        api.get<Repayment[]>('/repayments'),
-        api.get<Notification[]>('/notifications'),
-      ])
+    const [
+      lender,
+      branches,
+      staff,
+      holidays,
+      products,
+      borrowers,
+      applications,
+      loans,
+      repayments,
+      notifications,
+      collectionActivities,
+    ] = await Promise.all([
+      api.get<Lender>('/lender'),
+      api.get<Branch[]>('/branches'),
+      api.get<Staff[]>('/staff'),
+      api.get<Holiday[]>('/holidays'),
+      api.get<LoanProduct[]>('/products'),
+      api.get<Borrower[]>('/borrowers'),
+      api.get<Application[]>('/applications'),
+      api.get<Loan[]>('/loans'),
+      api.get<Repayment[]>('/repayments'),
+      api.get<Notification[]>('/notifications'),
+      api.get<CollectionActivity[]>('/collection-activities'),
+    ])
     set({
       lender: normalizeLender(lender),
       branches,
@@ -171,6 +200,7 @@ export const useStore = create<StoreState>()((set, get) => {
       loans,
       repayments,
       notifications,
+      collectionActivities,
     })
     await refreshAudit()
   }
@@ -379,6 +409,24 @@ export const useStore = create<StoreState>()((set, get) => {
       ])
       set({ loans, borrowers })
       toast.success('Loan written off')
+      await refreshAudit()
+    },
+
+    logCollectionActivity: async (loanId, input) => {
+      const created = await api.post<CollectionActivity>(`/loans/${loanId}/collection-activities`, input)
+      set((s) => ({ collectionActivities: [created, ...s.collectionActivities] }))
+      toast.success(input.kind === 'promise' ? 'Promise to pay recorded' : 'Contact logged')
+      await refreshAudit()
+    },
+
+    sendLoanReminder: async (loanId) => {
+      await api.post(`/loans/${loanId}/send-reminder`, {})
+      const [collectionActivities, notifications] = await Promise.all([
+        api.get<CollectionActivity[]>('/collection-activities'),
+        api.get<Notification[]>('/notifications'),
+      ])
+      set({ collectionActivities, notifications })
+      toast.success('Arrears reminder sent')
       await refreshAudit()
     },
   }

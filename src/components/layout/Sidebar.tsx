@@ -10,6 +10,7 @@ import {
   Wallet,
   ShieldCheck,
   BarChart3,
+  PhoneCall,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { shade } from '../../lib/color'
@@ -24,6 +25,7 @@ const navItems = [
   { to: '/applications', label: 'Applications & Approvals', icon: FileCheck2 },
   { to: '/disbursement', label: 'Disbursement', icon: Landmark },
   { to: '/repayments', label: 'Repayments', icon: Wallet },
+  { to: '/collections', label: 'Collections', icon: PhoneCall },
   { to: '/reports', label: 'Reports & Analytics', icon: BarChart3 },
   { to: '/security', label: 'Security & Audit', icon: ShieldCheck },
 ]
