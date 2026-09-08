@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" role="img" aria-label="City skyline at dawn">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"    stop-color="#141a3d"/>
+      <stop offset="0.30" stop-color="#3a336f"/>
+      <stop offset="0.52" stop-color="#7b4a8f"/>
+      <stop offset="0.70" stop-color="#c76a86"/>
+      <stop offset="0.84" stop-color="#f6a765"/>
+      <stop offset="1"    stop-color="#ffdca6"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.62" cy="0.86" r="0.6">
+      <stop offset="0"    stop-color="#fff6e6" stop-opacity="0.98"/>
+      <stop offset="0.3"  stop-color="#ffdca0" stop-opacity="0.7"/>
+      <stop offset="1"    stop-color="#ffdca0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b4b86" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#b06a86" stop-opacity="0.7"/>
+    </linearGradient>
+    <linearGradient id="mid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#37305f"/>
+      <stop offset="1" stop-color="#5a3f6b"/>
+    </linearGradient>
+    <linearGradient id="near" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#241d3f"/>
+      <stop offset="1" stop-color="#2e2147"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#sky)"/>
+  <rect width="1600" height="1000" fill="url(#sun)"/>
+
+  <g fill="#ffffff" opacity="0.45">
+    <circle cx="180" cy="90" r="1.4"/><circle cx="420" cy="150" r="1"/><circle cx="720" cy="70" r="1.6"/>
+    <circle cx="1010" cy="120" r="1"/><circle cx="1280" cy="80" r="1.4"/><circle cx="300" cy="230" r="1"/>
+    <circle cx="900" cy="200" r="1.1"/><circle cx="1180" cy="250" r="1"/><circle cx="560" cy="120" r="1"/>
+  </g>
+
+  <!-- far skyline -->
+  <g fill="url(#far)">
+    <rect x="40"   y="720" width="90"  height="280"/>
+    <rect x="170"  y="660" width="70"  height="340"/>
+    <rect x="290"  y="740" width="110" height="260"/>
+    <rect x="440"  y="620" width="80"  height="380"/>
+    <rect x="560"  y="700" width="90"  height="300"/>
+    <rect x="700"  y="580" width="120" height="420"/>
+    <rect x="880"  y="690" width="90"  height="310"/>
+    <rect x="1010" y="640" width="80"  height="360"/>
+    <rect x="1130" y="720" width="120" height="280"/>
+    <rect x="1300" y="660" width="90"  height="340"/>
+    <rect x="1440" y="710" width="120" height="290"/>
+  </g>
+
+  <!-- mid skyline -->
+  <g fill="url(#mid)">
+    <rect x="80"  y="700" width="120" height="300"/>
+    <rect x="230" y="620" width="90"  height="380"/>
+    <rect x="350" y="760" width="140" height="240"/>
+    <rect x="520" y="560" width="110" height="440"/>
+    <rect x="670" y="680" width="90"  height="320"/>
+    <rect x="790" y="500" width="150" height="500"/>
+    <rect x="990" y="660" width="120" height="340"/>
+    <rect x="1150" y="580" width="100" height="420"/>
+    <rect x="1280" y="720" width="150" height="280"/>
+    <rect x="1450" y="640" width="110" height="360"/>
+  </g>
+  <g fill="#ffe1b0" opacity="0.85">
+    <rect x="825" y="540" width="12" height="16"/><rect x="855" y="540" width="12" height="16"/><rect x="885" y="580" width="12" height="16"/>
+    <rect x="825" y="620" width="12" height="16"/><rect x="895" y="620" width="12" height="16"/><rect x="855" y="680" width="12" height="16"/>
+    <rect x="255" y="660" width="10" height="14"/><rect x="285" y="660" width="10" height="14"/><rect x="270" y="710" width="10" height="14"/>
+    <rect x="550" y="600" width="10" height="14"/><rect x="580" y="600" width="10" height="14"/><rect x="565" y="650" width="10" height="14"/>
+    <rect x="1180" y="620" width="10" height="14"/><rect x="1210" y="620" width="10" height="14"/>
+  </g>
+
+  <!-- near buildings + market roofs -->
+  <g fill="url(#near)">
+    <rect x="0"    y="820" width="140" height="180"/>
+    <path d="M150 850 l70 -44 l70 44 v150 H150 Z"/>
+    <rect x="300"  y="800" width="120" height="200"/>
+    <path d="M430 840 l85 -50 l85 50 v160 H430 Z"/>
+    <rect x="620"  y="790" width="150" height="210"/>
+    <path d="M780 830 l80 -46 l80 46 v170 H780 Z"/>
+    <rect x="950"  y="810" width="130" height="190"/>
+    <path d="M1090 840 l90 -52 l90 52 v160 H1090 Z"/>
+    <rect x="1290" y="795" width="160" height="205"/>
+    <path d="M1450 840 l80 -46 l80 46 v160 H1450 Z"/>
+  </g>
+</svg>
