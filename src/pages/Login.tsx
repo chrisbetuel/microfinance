@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Lock, Mail, Send, Eye, EyeOff, Check } from 'lucide-react'
+import { Lock, Mail, Send, Eye, EyeOff } from 'lucide-react'
 import { takeLogoutReason } from '../lib/session'
 import { useStore } from '../store/useStore'
 import { api, ApiError, setToken } from '../lib/api'
@@ -12,12 +12,6 @@ const inputBase =
   'w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-500/25'
 const plainInput = inputBase.replace('pl-10', 'pl-3.5')
 const iconCls = 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400'
-
-const points = [
-  'Applications, approvals & four-eyes disbursement',
-  'Automated arrears, penalties & a collections desk',
-  'Group lending, compulsory savings & a full audit trail',
-]
 
 export default function Login() {
   const navigate = useNavigate()
@@ -84,25 +78,9 @@ export default function Login() {
           </span>
         </header>
 
-        {/* body — hero + card as one centred stack */}
+        {/* body — the sign-in card, centred */}
         <div className="flex flex-1 items-center py-10">
-          <div className="w-full max-w-[420px] text-center">
-            <div className="mb-9 hidden lg:block">
-              <h1 className="text-[32px] font-black leading-[1.15] tracking-tight text-balance text-white">
-                Every loan, every payment, one calm workspace.
-              </h1>
-              <ul className="mt-6 flex flex-col items-center gap-2.5">
-                {points.map((p) => (
-                  <li key={p} className="flex items-center gap-2.5 text-sm text-white/80">
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/15">
-                      <Check size={11} strokeWidth={3} />
-                    </span>
-                    {p}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
+          <div className="w-full max-w-[420px]">
             <div className="rounded-2xl bg-white p-7 text-left shadow-[0_30px_80px_-24px_rgba(2,6,23,0.7)] ring-1 ring-black/5 sm:p-8">
               <h2 className="text-xl font-bold tracking-tight text-slate-900">
                 {mode === 'login' ? 'Welcome back' : 'Create your workspace'}
