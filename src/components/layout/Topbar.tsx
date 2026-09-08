@@ -1,10 +1,11 @@
-import { LogOut, MessageSquare, ChevronDown } from 'lucide-react'
+import { LogOut, MessageSquare, ChevronDown, Search } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
 import { STAFF_ROLE_LABELS } from '../../types'
 import { initials } from '../../lib/format'
 import { NotificationBell } from './NotificationBell'
+import { openCommandPalette } from '../CommandPalette'
 
 export function Topbar() {
   const currentUser = useStore((s) => s.currentUser)
@@ -16,7 +17,18 @@ export function Topbar() {
   if (!currentUser) return null
 
   return (
-    <header className="relative z-30 flex items-center justify-end border-b border-slate-200 bg-white/80 px-6 py-3 backdrop-blur-sm">
+    <header className="relative z-30 flex items-center justify-between border-b border-slate-200 bg-white/80 px-6 py-3 backdrop-blur-sm">
+      <button
+        onClick={openCommandPalette}
+        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-400 transition-colors hover:border-slate-300 hover:bg-white"
+      >
+        <Search size={14} />
+        <span className="hidden sm:inline">Search…</span>
+        <kbd className="ml-2 hidden rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-400 sm:inline">
+          Ctrl K
+        </kbd>
+      </button>
+
       <div className="flex items-center gap-3">
         <div className="hidden items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-100 sm:flex">
           <MessageSquare size={13} />
