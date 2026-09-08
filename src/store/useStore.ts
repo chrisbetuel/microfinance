@@ -112,6 +112,9 @@ interface StoreState {
   decideApplication: (applicationId: string, decision: 'approved' | 'declined', comment: string) => Promise<void>
 
   disburseLoan: (applicationId: string, channel: DisbursementChannel, reference: string) => Promise<void>
+  disburseBatch: (
+    items: { applicationId: string; channel: DisbursementChannel; reference: string }[],
+  ) => Promise<{ disbursed: number; skipped: { applicationId: string; reason: string }[] }>
 
   recordRepayment: (loanId: string, amount: number, channel: Repayment['channel']) => Promise<Repayment>
   reverseRepayment: (repaymentId: string, reason: string) => Promise<void>
@@ -375,6 +378,24 @@ export const useStore = create<StoreState>()((set, get) => {
       set({ applications, loans })
       toast.success('Loan disbursed')
       await refreshAudit()
+    },
+
+    disburseBatch: async (items) => {
+      const res = await api.post<{ disbursed: unknown[]; skipped: { applicationId: string; reason: string }[] }>(
+        '/disbursement/batch',
+        { items },
+      )
+      const [applications, loans] = await Promise.all([
+        api.get<Application[]>('/applications'),
+        api.get<Loan[]>('/loans'),
+      ])
+      set({ applications, loans })
+      const disbursed = res.disbursed.length
+      if (disbursed > 0) toast.success(`${disbursed} loan${disbursed > 1 ? 's' : ''} disbursed`)
+      if (res.skipped.length > 0)
+        toast.error(`${res.skipped.length} skipped`, res.skipped.map((s) => s.reason)[0])
+      await refreshAudit()
+      return { disbursed, skipped: res.skipped }
     },
 
     recordRepayment: async (loanId, amount, channel) => {

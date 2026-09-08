@@ -379,6 +379,16 @@ class DisburseSerializer(serializers.Serializer):
     reference = serializers.CharField()
 
 
+class BatchDisburseItemSerializer(serializers.Serializer):
+    application_id = serializers.UUIDField()
+    channel = serializers.ChoiceField(choices=enums.DisbursementChannel.choices)
+    reference = serializers.CharField()
+
+
+class BatchDisburseSerializer(serializers.Serializer):
+    items = BatchDisburseItemSerializer(many=True, allow_empty=False)
+
+
 class WriteOffSerializer(serializers.Serializer):
     reason = serializers.CharField()
 

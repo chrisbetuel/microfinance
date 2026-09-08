@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Download, Layers } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Tabs } from '../../components/ui/Tabs'
@@ -11,6 +12,7 @@ import type { Application, DisbursementChannel } from '../../types'
 import { formatDateTime, formatMoney } from '../../lib/format'
 import { totalFeeAmount } from '../../lib/loanMath'
 import { useCanEdit } from '../../lib/useCanEdit'
+import { downloadCSV } from '../../lib/csv'
 
 const channelLabels: Record<DisbursementChannel, string> = {
   mobile_money: 'Mobile money',
@@ -32,6 +34,7 @@ export default function DisbursementQueue() {
   const products = useStore((s) => s.products)
   const lender = useStore((s) => s.lender)
   const disburseLoan = useStore((s) => s.disburseLoan)
+  const disburseBatch = useStore((s) => s.disburseBatch)
   const currentStaffId = useStore((s) => s.currentStaffId)
   const staff = useStore((s) => s.staff)
   const loans = useStore((s) => s.loans)
@@ -40,42 +43,133 @@ export default function DisbursementQueue() {
   const [active, setActive] = useState<Application | null>(null)
   const [channel, setChannel] = useState<DisbursementChannel>('mobile_money')
   const [reference, setReference] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [batchOpen, setBatchOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   const currentStaff = staff.find((s) => s.id === currentStaffId)
 
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const selectableIds = applications
+    .filter((a) => (a.approvals.at(-1)?.approverName ?? '') !== currentStaff?.name)
+    .map((a) => a.id)
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id))
+  const selectedApps = applications.filter((a) => selected.has(a.id))
+  const selectedTotal = selectedApps.reduce((s, a) => s + a.amount, 0)
+
+  function downloadPaymentFile() {
+    downloadCSV(
+      `disbursement-queue-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Reference', 'Borrower', 'Phone', 'Product', 'Approved amount', 'Approved by'],
+      applications.map((a) => {
+        const b = borrowers.find((x) => x.id === a.borrowerId)
+        return [
+          a.reference,
+          b?.fullName ?? '',
+          b?.phone ?? '',
+          products.find((p) => p.id === a.productId)?.name ?? '',
+          a.amount,
+          a.approvals.at(-1)?.approverName ?? '',
+        ]
+      }),
+    )
+  }
+
   return (
     <div>
-      <PageHeader title="Disbursement" subtitle="Every shilling traceable to an approval and a destination" />
+      <PageHeader
+        title="Disbursement"
+        subtitle="Every shilling traceable to an approval and a destination"
+        action={
+          tab === 'queue' && applications.length > 0 ? (
+            <Button variant="secondary" size="sm" icon={<Download size={14} />} onClick={downloadPaymentFile}>
+              Payment file
+            </Button>
+          ) : undefined
+        }
+      />
       <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
       <div className="mt-6">
         {tab === 'queue' && (
-          <Table
-            rowKey={(a) => a.id}
-            rows={applications}
-            columns={[
-              { header: 'Reference', cell: (a) => a.reference },
-              { header: 'Borrower', cell: (a) => <BorrowerLink id={a.borrowerId} borrowers={borrowers} /> },
-              { header: 'Product', cell: (a) => products.find((p) => p.id === a.productId)?.name },
-              { header: 'Amount', cell: (a) => formatMoney(a.amount, lender.currency) },
-              { header: 'Approved by', cell: (a) => a.approvals.at(-1)?.approverName ?? '—' },
-              {
-                header: '',
-                cell: (a) =>
-                  canEdit && (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setActive(a)
-                        setReference(`REF-${Date.now().toString().slice(-6)}`)
-                      }}
-                    >
-                      Disburse
-                    </Button>
-                  ),
-              },
-            ]}
-          />
+          <>
+            {canEdit && selected.size > 0 && (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5">
+                <p className="text-sm font-medium text-brand-800">
+                  {selected.size} selected · {formatMoney(selectedTotal, lender.currency)}
+                </p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                    Clear
+                  </Button>
+                  <Button size="sm" icon={<Layers size={14} />} onClick={() => setBatchOpen(true)}>
+                    Disburse selected
+                  </Button>
+                </div>
+              </div>
+            )}
+            <Table
+              rowKey={(a) => a.id}
+              rows={applications}
+              columns={[
+                ...(canEdit
+                  ? [
+                      {
+                        header: '',
+                        className: 'w-10',
+                        cell: (a: Application) => {
+                          const disqualified = (a.approvals.at(-1)?.approverName ?? '') === currentStaff?.name
+                          return (
+                            <input
+                              type="checkbox"
+                              disabled={disqualified}
+                              checked={selected.has(a.id)}
+                              onChange={() => toggle(a.id)}
+                              title={disqualified ? 'You approved this loan — someone else must release it' : ''}
+                            />
+                          )
+                        },
+                      },
+                    ]
+                  : []),
+                { header: 'Reference', cell: (a) => a.reference },
+                { header: 'Borrower', cell: (a) => <BorrowerLink id={a.borrowerId} borrowers={borrowers} /> },
+                { header: 'Product', cell: (a) => products.find((p) => p.id === a.productId)?.name },
+                { header: 'Amount', cell: (a) => formatMoney(a.amount, lender.currency), sort: (a) => a.amount },
+                { header: 'Approved by', cell: (a) => a.approvals.at(-1)?.approverName ?? '—' },
+                {
+                  header: '',
+                  cell: (a) =>
+                    canEdit && (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setActive(a)
+                          setReference(`REF-${Date.now().toString().slice(-6)}`)
+                        }}
+                      >
+                        Disburse
+                      </Button>
+                    ),
+                },
+              ]}
+            />
+            {canEdit && selectableIds.length > 0 && (
+              <button
+                onClick={() => setSelected(allSelected ? new Set() : new Set(selectableIds))}
+                className="mt-2 text-xs font-medium text-brand-600 hover:underline"
+              >
+                {allSelected ? 'Deselect all' : `Select all ${selectableIds.length} eligible`}
+              </button>
+            )}
+          </>
         )}
 
         {tab === 'register' && (
@@ -95,6 +189,33 @@ export default function DisbursementQueue() {
         )}
       </div>
 
+      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title={`Batch disbursement — ${selectedApps.length} loans`} wide>
+        <BatchDisburseForm
+          apps={selectedApps}
+          total={selectedTotal}
+          currency={lender.currency}
+          busy={busy}
+          borrowerName={(id) => borrowers.find((b) => b.id === id)?.fullName ?? '—'}
+          onConfirm={async (batchChannel, prefix) => {
+            setBusy(true)
+            try {
+              const res = await disburseBatch(
+                selectedApps.map((a, i) => ({
+                  applicationId: a.id,
+                  channel: batchChannel,
+                  reference: `${prefix}-${String(i + 1).padStart(3, '0')}`,
+                })),
+              )
+              setSelected(new Set())
+              setBatchOpen(false)
+              void res
+            } finally {
+              setBusy(false)
+            }
+          }}
+        />
+      </Modal>
+
       <Modal open={active !== null} onClose={() => setActive(null)} title="Confirm disbursement">
         {active && (
           <DisburseForm
@@ -112,6 +233,73 @@ export default function DisbursementQueue() {
           />
         )}
       </Modal>
+    </div>
+  )
+}
+
+function BatchDisburseForm({
+  apps,
+  total,
+  currency,
+  busy,
+  borrowerName,
+  onConfirm,
+}: {
+  apps: Application[]
+  total: number
+  currency: string
+  busy: boolean
+  borrowerName: (id: string) => string
+  onConfirm: (channel: DisbursementChannel, referencePrefix: string) => void
+}) {
+  const [channel, setChannel] = useState<DisbursementChannel>('bank_transfer')
+  const [prefix, setPrefix] = useState(`BATCH-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`)
+
+  return (
+    <div className="space-y-4">
+      <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
+        <table className="min-w-full text-sm">
+          <tbody className="divide-y divide-slate-100">
+            {apps.map((a) => (
+              <tr key={a.id}>
+                <td className="px-3 py-2">{a.reference}</td>
+                <td className="px-3 py-2 text-slate-600">{borrowerName(a.borrowerId)}</td>
+                <td className="px-3 py-2 text-right font-medium">{formatMoney(a.amount, currency)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="border-t border-slate-200 bg-slate-50">
+            <tr>
+              <td className="px-3 py-2 font-semibold" colSpan={2}>
+                Total ({apps.length} loans)
+              </td>
+              <td className="px-3 py-2 text-right font-bold">{formatMoney(total, currency)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Channel — applied to all">
+          <select className={inputClass} value={channel} onChange={(e) => setChannel(e.target.value as DisbursementChannel)}>
+            <option value="bank_transfer">Bank transfer</option>
+            <option value="mobile_money">Mobile money</option>
+            <option value="cash">Cash</option>
+            <option value="supplier">Direct to supplier</option>
+          </select>
+        </Field>
+        <Field label="Reference prefix" hint="Each loan gets prefix-001, -002…">
+          <input className={inputClass} value={prefix} onChange={(e) => setPrefix(e.target.value)} />
+        </Field>
+      </div>
+
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        Loans you approved yourself are excluded — the approver and the person releasing funds must differ.
+      </p>
+
+      <Button className="w-full" disabled={busy || !prefix.trim()} onClick={() => onConfirm(channel, prefix.trim())}>
+        {busy ? 'Releasing…' : `Release ${apps.length} loans`}
+      </Button>
     </div>
   )
 }

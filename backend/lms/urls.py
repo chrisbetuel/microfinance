@@ -31,6 +31,7 @@ urlpatterns = [
     path("applications/<uuid:application_id>", v.ApplicationDetailView.as_view()),
     path("applications/<uuid:application_id>/decision", v.ApplicationDecisionView.as_view()),
     path("applications/<uuid:application_id>/disburse", v.ApplicationDisburseView.as_view()),
+    path("disbursement/batch", v.DisbursementBatchView.as_view()),
 
     path("loans", v.LoansView.as_view()),
     path("loans/<uuid:loan_id>", v.LoanDetailView.as_view()),

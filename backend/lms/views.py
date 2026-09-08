@@ -568,6 +568,38 @@ class ApplicationDecisionView(APIView):
         return Response(ser.ApplicationSerializer(application_qs(request.user.lender).get(pk=application_id)).data)
 
 
+class DisburseError(Exception):
+    """Raised by _disburse_one when an application can't be released."""
+
+
+def _disburse_one(request_user, application, channel, reference):
+    lender = request_user.lender
+    if application.status != ApplicationStatus.APPROVED:
+        raise DisburseError("Only an approved application can be disbursed")
+    if Loan.objects.filter(application=application).exists():
+        raise DisburseError("This application has already been disbursed")
+
+    product = product_qs(lender).filter(pk=application.product_id).first()
+    last = application.approvals.all().last()
+    approver = last.approver_name if last else "Unknown"
+    if approver == request_user.name:
+        raise DisburseError("The approver and the person releasing funds must be different people")
+
+    with transaction.atomic():
+        loan = loan_service.create_loan_from_application(
+            application=application, product=product, channel=channel, reference=reference,
+            approved_by=approver, disbursed_by=request_user.name,
+        )
+        application.status = ApplicationStatus.DISBURSED
+        application.save(update_fields=["status"])
+        audit.record(
+            request_user, "disbursed", "loan", loan.id,
+            f"{loan.net_disbursed:,.0f} disbursed via {channel} (ref {reference})",
+        )
+    notify.disbursed(lender, application.borrower, loan)
+    return loan
+
+
 class ApplicationDisburseView(APIView):
     permission_classes = [IsAuthenticated, section_editor("disbursement")]
 
@@ -576,37 +608,45 @@ class ApplicationDisburseView(APIView):
         application = application_qs(lender).filter(pk=application_id).first()
         if application is None:
             raise NotFound("Application not found")
-        if application.status != ApplicationStatus.APPROVED:
-            raise Conflict("Only an approved application can be disbursed")
-        if Loan.objects.filter(application=application).exists():
-            raise Conflict("This application has already been disbursed")
-
-        product = product_qs(lender).filter(pk=application.product_id).first()
         data = validated(ser.DisburseSerializer, request.data)
-        last = application.approvals.all().last()
-        approver = last.approver_name if last else "Unknown"
-        if approver == request.user.name:
-            raise PermissionDenied("The approver and the person releasing funds must be different people")
-
-        with transaction.atomic():
-            loan = loan_service.create_loan_from_application(
-                application=application,
-                product=product,
-                channel=data["channel"],
-                reference=data["reference"],
-                approved_by=approver,
-                disbursed_by=request.user.name,
-            )
-            application.status = ApplicationStatus.DISBURSED
-            application.save(update_fields=["status"])
-            audit.record(
-                request.user, "disbursed", "loan", loan.id,
-                f"{loan.net_disbursed:,.0f} disbursed via {data['channel']} (ref {data['reference']})",
-            )
-        notify.disbursed(lender, application.borrower, loan)
+        try:
+            loan = _disburse_one(request.user, application, data["channel"], data["reference"])
+        except DisburseError as exc:
+            msg = str(exc)
+            raise PermissionDenied(msg) if "different people" in msg else Conflict(msg)
         return Response(
             ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+class DisbursementBatchView(APIView):
+    """Release several approved loans in one go — the finance team's daily run."""
+
+    permission_classes = [IsAuthenticated, section_editor("disbursement")]
+
+    def post(self, request):
+        lender = request.user.lender
+        data = validated(ser.BatchDisburseSerializer, request.data)
+        disbursed, skipped = [], []
+        for item in data["items"]:
+            application = application_qs(lender).filter(pk=item["application_id"]).first()
+            if application is None:
+                skipped.append({"applicationId": str(item["application_id"]), "reason": "Application not found"})
+                continue
+            try:
+                loan = _disburse_one(request.user, application, item["channel"], item["reference"])
+                disbursed.append(loan)
+            except DisburseError as exc:
+                skipped.append({"applicationId": str(application.id), "reason": str(exc)})
+        return Response(
+            {
+                "disbursed": ser.LoanSerializer(
+                    Loan.objects.prefetch_related("schedule").filter(pk__in=[l.pk for l in disbursed]), many=True
+                ).data,
+                "skipped": skipped,
+            },
+            status=status.HTTP_201_CREATED if disbursed else status.HTTP_200_OK,
         )
 
 
