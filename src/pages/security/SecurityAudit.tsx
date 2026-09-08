@@ -97,10 +97,13 @@ export default function SecurityAudit() {
           <Table
             rowKey={(e) => e.id}
             rows={auditLog}
+            pageSize={25}
+            filterPlaceholder="Filter by user, action or entity"
+            filterAccessor={(e) => `${e.userName} ${e.action} ${e.entity} ${e.details}`}
             columns={[
-              { header: 'Time', cell: (e) => formatDateTime(e.timestamp) },
-              { header: 'User', cell: (e) => e.userName },
-              { header: 'Action', cell: (e) => <Badge tone="slate">{e.action}</Badge> },
+              { header: 'Time', cell: (e) => formatDateTime(e.timestamp), sort: (e) => e.timestamp },
+              { header: 'User', cell: (e) => e.userName, sort: (e) => e.userName },
+              { header: 'Action', cell: (e) => <Badge tone="slate">{e.action}</Badge>, sort: (e) => e.action },
               { header: 'Entity', cell: (e) => `${e.entity} · ${e.entityId.slice(0, 8)}` },
               { header: 'Details', cell: (e) => <span className="text-slate-500">{e.details}</span> },
             ]}
@@ -115,8 +118,13 @@ export default function SecurityAudit() {
             <Table
               rowKey={(n) => n.id}
               rows={notifications}
+              pageSize={25}
+              filterPlaceholder="Filter by borrower, type or status"
+              filterAccessor={(n) =>
+                `${n.to} ${kindLabels[n.kind] ?? n.kind} ${n.status} ${n.body} ${borrowers.find((b) => b.id === n.borrowerId)?.fullName ?? ''}`
+              }
               columns={[
-                { header: 'Time', cell: (n) => formatDateTime(n.createdAt) },
+                { header: 'Time', cell: (n) => formatDateTime(n.createdAt), sort: (n) => n.createdAt },
                 { header: 'Type', cell: (n) => kindLabels[n.kind] ?? n.kind },
                 {
                   header: 'Borrower',

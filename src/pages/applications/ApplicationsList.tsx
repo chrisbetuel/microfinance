@@ -44,13 +44,22 @@ export default function ApplicationsList() {
         rowKey={(a) => a.id}
         rows={[...applications].sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
         onRowClick={(a) => navigate(`/applications/${a.id}`)}
+        pageSize={15}
+        filterPlaceholder="Filter by reference or borrower"
+        filterAccessor={(a) =>
+          `${a.reference} ${borrowers.find((b) => b.id === a.borrowerId)?.fullName ?? ''} ${a.status}`
+        }
         columns={[
-          { header: 'Reference', cell: (a) => <span className="font-medium text-slate-800">{a.reference}</span> },
+          {
+            header: 'Reference',
+            cell: (a) => <span className="font-medium text-slate-800">{a.reference}</span>,
+            sort: (a) => a.reference,
+          },
           { header: 'Borrower', cell: (a) => <BorrowerLink id={a.borrowerId} borrowers={borrowers} /> },
           { header: 'Product', cell: (a) => products.find((p) => p.id === a.productId)?.name ?? '—' },
-          { header: 'Amount', cell: (a) => formatMoney(a.amount) },
-          { header: 'Score', cell: (a) => (a.score !== null ? a.score : '—') },
-          { header: 'Submitted', cell: (a) => formatDate(a.createdAt) },
+          { header: 'Amount', cell: (a) => formatMoney(a.amount), sort: (a) => a.amount },
+          { header: 'Score', cell: (a) => (a.score !== null ? a.score : '—'), sort: (a) => a.score ?? -1 },
+          { header: 'Submitted', cell: (a) => formatDate(a.createdAt), sort: (a) => a.createdAt },
           { header: 'Status', cell: (a) => <Badge tone={statusTone[a.status]}>{a.status.replace('_', ' ')}</Badge> },
         ]}
       />
