@@ -1,4 +1,4 @@
-import { LogOut, MessageSquare, ChevronDown, Search } from 'lucide-react'
+import { LogOut, MessageSquare, ChevronDown, Search, Sun, Moon, Monitor } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
@@ -6,6 +6,26 @@ import { STAFF_ROLE_LABELS } from '../../types'
 import { initials } from '../../lib/format'
 import { NotificationBell } from './NotificationBell'
 import { openCommandPalette } from '../CommandPalette'
+import { useTheme, type ThemeChoice } from '../../lib/theme'
+
+const themeOrder: ThemeChoice[] = ['light', 'dark', 'system']
+const themeIcon = { light: Sun, dark: Moon, system: Monitor }
+
+function ThemeToggle() {
+  const choice = useTheme((s) => s.choice)
+  const setChoice = useTheme((s) => s.setChoice)
+  const Icon = themeIcon[choice]
+  return (
+    <button
+      onClick={() => setChoice(themeOrder[(themeOrder.indexOf(choice) + 1) % themeOrder.length])}
+      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+      title={`Theme: ${choice} — click to change`}
+      aria-label={`Theme: ${choice}`}
+    >
+      <Icon size={16} />
+    </button>
+  )
+}
 
 export function Topbar() {
   const currentUser = useStore((s) => s.currentUser)
@@ -17,7 +37,7 @@ export function Topbar() {
   if (!currentUser) return null
 
   return (
-    <header className="relative z-30 flex items-center justify-between border-b border-slate-200 bg-white/80 px-6 py-3 backdrop-blur-sm">
+    <header className="relative z-30 flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-6 py-3 backdrop-blur-sm">
       <button
         onClick={openCommandPalette}
         className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-400 transition-colors hover:border-slate-300 hover:bg-white"
@@ -34,6 +54,8 @@ export function Topbar() {
           <MessageSquare size={13} />
           SMS balance: <span className="tabular-nums font-semibold">{lender.smsBalance.toLocaleString()}</span>
         </div>
+
+        <ThemeToggle />
 
         <NotificationBell />
 

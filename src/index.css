@@ -36,6 +36,43 @@
   --shadow-pop: 0 20px 40px -12px rgb(15 23 42 / 0.22), 0 6px 14px -6px rgb(15 23 42 / 0.1);
 }
 
+/* Class-based dark mode: an explicit choice sets data-theme on <html>. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Dark theme is a palette inversion: the app consistently uses white for
+   surfaces, slate-50/100 for subtle fills, slate-700/900 for text and
+   slate-200 for borders, so remapping those tokens flips the whole UI
+   without touching every component. Brand / accent / semantic colours are
+   left alone — they read fine on a dark ground. */
+/* `bg-white` means "a surface" in this app; in dark mode surfaces go dark.
+   `text-white` / `bg-white/NN` (on brand-coloured backgrounds) are left as
+   real white by keeping the --color-white token untouched. */
+[data-theme="dark"] .bg-white {
+  background-color: #131a2a;
+}
+
+@layer theme {
+  [data-theme="dark"] {
+    color-scheme: dark;
+
+    --color-slate-50: #0c1120;
+    --color-slate-100: #1a2234;
+    --color-slate-200: #2b3648;
+    --color-slate-300: #3d4a5f;
+    --color-slate-400: #8695ac;
+    --color-slate-500: #a9b6cc;
+    --color-slate-600: #c2cde0;
+    --color-slate-700: #d7dfee;
+    --color-slate-800: #e9eef8;
+    --color-slate-900: #f6f8fd;
+    --color-slate-950: #ffffff;
+
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 1px 3px 0 rgb(0 0 0 / 0.5);
+    --shadow-card-hover: 0 8px 20px -6px rgb(0 0 0 / 0.6), 0 3px 8px -3px rgb(0 0 0 / 0.5);
+    --shadow-pop: 0 20px 40px -12px rgb(0 0 0 / 0.7), 0 6px 14px -6px rgb(0 0 0 / 0.5);
+  }
+}
+
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -48,7 +85,7 @@
 .skeleton {
   position: relative;
   overflow: hidden;
-  background-color: #e2e8f0;
+  background-color: var(--color-slate-200);
 }
 .skeleton::after {
   content: "";
@@ -57,6 +94,9 @@
   transform: translateX(-100%);
   background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
   animation: shimmer 1.6s infinite;
+}
+[data-theme="dark"] .skeleton::after {
+  background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
 }
 
 html, body, #root {
@@ -75,7 +115,7 @@ body {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--color-slate-300) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -84,7 +124,7 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
+  background-color: var(--color-slate-300);
   border-radius: 9999px;
 }
 
