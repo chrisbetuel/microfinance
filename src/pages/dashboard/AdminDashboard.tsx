@@ -34,7 +34,6 @@ export default function AdminDashboard() {
   return (
     <div>
       <DashboardHero
-        brandColor={lender.brandColor}
         eyebrow="Lender administrator"
         title={`Good day — ${lender.name}`}
         subtitle={`${branches.length} branches · ${borrowers.length} borrowers · ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}

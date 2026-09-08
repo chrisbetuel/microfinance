@@ -2,13 +2,13 @@ import type { StaffRole } from '../types'
 
 // Which nav sections each role can see, based on their responsibilities in the product doc.
 export const NAV_ACCESS: Record<StaffRole, string[]> = {
-  platform_admin: ['/', '/lender-setup', '/borrowers', '/products', '/applications', '/disbursement', '/repayments', '/security'],
-  lender_admin: ['/', '/lender-setup', '/borrowers', '/products', '/applications', '/disbursement', '/repayments', '/security'],
-  branch_manager: ['/', '/borrowers', '/products', '/applications', '/disbursement', '/repayments'],
+  platform_admin: ['/', '/lender-setup', '/borrowers', '/products', '/applications', '/disbursement', '/repayments', '/reports', '/security'],
+  lender_admin: ['/', '/lender-setup', '/borrowers', '/products', '/applications', '/disbursement', '/repayments', '/reports', '/security'],
+  branch_manager: ['/', '/borrowers', '/products', '/applications', '/disbursement', '/repayments', '/reports'],
   loan_officer: ['/', '/borrowers', '/applications', '/repayments'],
   credit_committee: ['/', '/borrowers', '/applications'],
   cashier: ['/', '/borrowers', '/disbursement', '/repayments'],
-  auditor: ['/', '/lender-setup', '/borrowers', '/products', '/applications', '/disbursement', '/repayments', '/security'],
+  auditor: ['/', '/lender-setup', '/borrowers', '/products', '/applications', '/disbursement', '/repayments', '/reports', '/security'],
 }
 
 // The auditor role sees everything but must never be able to create, approve, disburse or reverse anything.

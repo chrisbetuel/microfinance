@@ -43,7 +43,6 @@ export default function CreditCommitteeDashboard({ staff: approver }: { staff: S
   return (
     <div>
       <DashboardHero
-        brandColor={lender.brandColor}
         eyebrow="Credit committee / approver"
         title={`Good day, ${approver.name}`}
         subtitle={`${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}

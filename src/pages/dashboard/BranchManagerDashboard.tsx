@@ -62,7 +62,6 @@ export default function BranchManagerDashboard({ staff: manager }: { staff: Staf
   return (
     <div>
       <DashboardHero
-        brandColor={lender.brandColor}
         eyebrow="Branch manager"
         title={`${branch.name} branch`}
         subtitle={`${branchBorrowers.length} borrowers · ${officers.length} loan officers · ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}

@@ -15,6 +15,7 @@ import type {
   StaffRole,
 } from '../types'
 import { api, ApiError, getToken, setToken } from '../lib/api'
+import { toast } from '../lib/toast'
 
 export interface CurrentUser {
   id: string
@@ -211,18 +212,21 @@ export const useStore = create<StoreState>()((set, get) => {
       if (body.licenceExpiry === '') body.licenceExpiry = null
       const lender = await api.patch<Lender>('/lender', body)
       set({ lender: normalizeLender(lender) })
+      toast.success('Lender profile updated')
       await refreshAudit()
     },
 
     addBranch: async (branch) => {
       const created = await api.post<Branch>('/branches', branch)
       set((s) => ({ branches: [...s.branches, created] }))
+      toast.success('Branch added', created.name)
       await refreshAudit()
     },
 
     addStaff: async (staff) => {
       const created = await api.post<Staff>('/staff', staff)
       set((s) => ({ staff: [...s.staff, created] }))
+      toast.success('Staff member added', created.name)
       await refreshAudit()
     },
 
@@ -249,6 +253,7 @@ export const useStore = create<StoreState>()((set, get) => {
     addBorrower: async (borrower) => {
       const created = await api.post<Borrower>('/borrowers', borrower)
       set((s) => ({ borrowers: [created, ...s.borrowers] }))
+      toast.success('Borrower registered', created.fullName)
       await refreshAudit()
       return created.id
     },
@@ -256,12 +261,14 @@ export const useStore = create<StoreState>()((set, get) => {
     updateBorrower: async (borrowerId, patch) => {
       const updated = await api.patch<Borrower>(`/borrowers/${borrowerId}`, patch)
       set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
+      toast.success('Borrower updated', updated.fullName)
       await refreshAudit()
     },
 
     setBorrowerBlacklist: async (borrowerId, blacklisted, reason) => {
       const updated = await api.post<Borrower>(`/borrowers/${borrowerId}/blacklist`, { blacklisted, reason })
       set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
+      toast.success(blacklisted ? 'Borrower blacklisted' : 'Borrower removed from blacklist')
       await refreshAudit()
     },
 
@@ -269,11 +276,13 @@ export const useStore = create<StoreState>()((set, get) => {
       await api.post(`/borrowers/${borrowerId}/documents`, { name, type })
       const updated = await api.get<Borrower>(`/borrowers/${borrowerId}`)
       set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
+      toast.success('Document attached', name)
       await refreshAudit()
     },
 
     changePassword: async (currentPassword, newPassword) => {
       await api.post('/auth/change-password', { currentPassword, newPassword })
+      toast.success('Password changed')
     },
 
     saveProduct: async (product) => {
@@ -286,6 +295,7 @@ export const useStore = create<StoreState>()((set, get) => {
           ? s.products.map((p) => (p.id === saved.id ? saved : p))
           : [...s.products, saved],
       }))
+      toast.success(exists ? 'Product updated' : 'Product created', saved.name)
       await refreshAudit()
     },
 
@@ -310,6 +320,7 @@ export const useStore = create<StoreState>()((set, get) => {
         creditBureauConsent: input.creditBureauConsent,
       })
       set((s) => ({ applications: [created, ...s.applications] }))
+      toast.success('Application submitted')
       await refreshAudit()
       return created.id
     },
@@ -317,6 +328,7 @@ export const useStore = create<StoreState>()((set, get) => {
     decideApplication: async (applicationId, decision, comment) => {
       const updated = await api.post<Application>(`/applications/${applicationId}/decision`, { decision, comment })
       set((s) => ({ applications: s.applications.map((a) => (a.id === applicationId ? updated : a)) }))
+      toast.success(decision === 'approved' ? 'Application approved' : 'Application declined')
       await refreshAudit()
     },
 
@@ -327,6 +339,7 @@ export const useStore = create<StoreState>()((set, get) => {
         api.get<Loan[]>('/loans'),
       ])
       set({ applications, loans })
+      toast.success('Loan disbursed')
       await refreshAudit()
     },
 
@@ -334,6 +347,7 @@ export const useStore = create<StoreState>()((set, get) => {
       const repayment = await api.post<Repayment>('/repayments', { loanId, amount, channel })
       const loans = await api.get<Loan[]>('/loans')
       set((s) => ({ repayments: [repayment, ...s.repayments], loans }))
+      toast.success('Repayment recorded', repayment.receiptNumber)
       await refreshAudit()
       return repayment
     },
@@ -342,6 +356,7 @@ export const useStore = create<StoreState>()((set, get) => {
       const updated = await api.post<Repayment>(`/repayments/${repaymentId}/reverse`, { reason })
       const loans = await api.get<Loan[]>('/loans')
       set((s) => ({ repayments: s.repayments.map((r) => (r.id === repaymentId ? updated : r)), loans }))
+      toast.success('Repayment reversed')
       await refreshAudit()
     },
 
@@ -352,6 +367,7 @@ export const useStore = create<StoreState>()((set, get) => {
         api.get<Repayment[]>('/repayments'),
       ])
       set({ loans, repayments })
+      toast.success('Loan settled early')
       await refreshAudit()
     },
 
@@ -362,6 +378,7 @@ export const useStore = create<StoreState>()((set, get) => {
         api.get<Borrower[]>('/borrowers'),
       ])
       set({ loans, borrowers })
+      toast.success('Loan written off')
       await refreshAudit()
     },
   }

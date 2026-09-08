@@ -61,11 +61,11 @@ export default function Login() {
       <div className="relative flex flex-1 items-center justify-center px-4 py-10">
         <div className="w-full max-w-[380px] rounded-3xl bg-white p-8 shadow-[0_25px_70px_-15px_rgba(2,6,23,0.5)]">
           <div className="mb-7 flex items-center justify-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-600 text-white">
               <Send size={18} strokeWidth={2.25} />
             </span>
             <span className="text-xl font-extrabold tracking-tight text-slate-900">
-              Sele<span className="text-brand-600">MF</span>
+              Sele<span className="text-accent-600">MF</span>
             </span>
           </div>
 

@@ -60,7 +60,6 @@ export default function LoanOfficerDashboard({ staff: officer }: { staff: Staff 
   return (
     <div>
       <DashboardHero
-        brandColor={lender.brandColor}
         eyebrow="Loan officer"
         title={`Good day, ${officer.name}`}
         subtitle={`${branch?.name ?? ''} · ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}

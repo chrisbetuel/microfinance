@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useStore } from './store/useStore'
 import { AppShell } from './components/layout/AppShell'
+import { Toaster } from './components/ui/Toaster'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import LenderSetup from './pages/lender/LenderSetup'
@@ -15,6 +16,7 @@ import ApplicationDetail from './pages/applications/ApplicationDetail'
 import DisbursementQueue from './pages/disbursement/DisbursementQueue'
 import Repayments from './pages/repayments/Repayments'
 import SecurityAudit from './pages/security/SecurityAudit'
+import Reports from './pages/reports/Reports'
 
 function LoadingScreen() {
   return (
@@ -36,35 +38,37 @@ export default function App() {
     bootstrap()
   }, [bootstrap])
 
-  if (status === 'loading') return <LoadingScreen />
-
-  if (status === 'anonymous') {
-    return (
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/login" replace state={{ from: location.pathname }} />} />
-      </Routes>
-    )
-  }
-
   return (
-    <Routes>
-      <Route path="/login" element={<Navigate to="/" replace />} />
-      <Route element={<AppShell />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/lender-setup" element={<LenderSetup />} />
-        <Route path="/borrowers" element={<BorrowersList />} />
-        <Route path="/borrowers/:id" element={<BorrowerDetail />} />
-        <Route path="/products" element={<ProductsList />} />
-        <Route path="/products/new" element={<ProductEditor />} />
-        <Route path="/products/:id" element={<ProductEditor />} />
-        <Route path="/applications" element={<ApplicationsList />} />
-        <Route path="/applications/new" element={<ApplicationNew />} />
-        <Route path="/applications/:id" element={<ApplicationDetail />} />
-        <Route path="/disbursement" element={<DisbursementQueue />} />
-        <Route path="/repayments" element={<Repayments />} />
-        <Route path="/security" element={<SecurityAudit />} />
-      </Route>
-    </Routes>
+    <>
+      <Toaster />
+      {status === 'loading' ? (
+        <LoadingScreen />
+      ) : status === 'anonymous' ? (
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="*" element={<Navigate to="/login" replace state={{ from: location.pathname }} />} />
+        </Routes>
+      ) : (
+        <Routes>
+          <Route path="/login" element={<Navigate to="/" replace />} />
+          <Route element={<AppShell />}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/lender-setup" element={<LenderSetup />} />
+            <Route path="/borrowers" element={<BorrowersList />} />
+            <Route path="/borrowers/:id" element={<BorrowerDetail />} />
+            <Route path="/products" element={<ProductsList />} />
+            <Route path="/products/new" element={<ProductEditor />} />
+            <Route path="/products/:id" element={<ProductEditor />} />
+            <Route path="/applications" element={<ApplicationsList />} />
+            <Route path="/applications/new" element={<ApplicationNew />} />
+            <Route path="/applications/:id" element={<ApplicationDetail />} />
+            <Route path="/disbursement" element={<DisbursementQueue />} />
+            <Route path="/repayments" element={<Repayments />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/security" element={<SecurityAudit />} />
+          </Route>
+        </Routes>
+      )}
+    </>
   )
 }

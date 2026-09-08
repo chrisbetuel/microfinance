@@ -36,7 +36,6 @@ export default function CashierDashboard({ staff: cashier }: { staff: Staff }) {
   return (
     <div>
       <DashboardHero
-        brandColor={lender.brandColor}
         eyebrow="Cashier / finance officer"
         title={`Good day, ${cashier.name}`}
         subtitle={`${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}

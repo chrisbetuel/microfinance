@@ -33,7 +33,6 @@ export default function AuditorDashboard() {
   return (
     <div>
       <DashboardHero
-        brandColor={lender.brandColor}
         eyebrow="Auditor"
         title="Auditor overview"
         subtitle={`Sees everything, changes nothing · ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}
