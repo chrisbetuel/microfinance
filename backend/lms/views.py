@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -16,9 +17,11 @@ from lms.models import (
     ApprovalDecision,
     Borrower,
     BorrowerDocument,
+    BorrowerGroup,
     BorrowerHistoryEvent,
     Branch,
     CollectionActivity,
+    GroupMembership,
     Guarantor,
     Holiday,
     Lender,
@@ -471,6 +474,14 @@ class ApplicationsView(APIView):
             raise NotFound("Loan product not found")
         if not product.active:
             raise UnprocessableEntity("Loan product is not active")
+
+        group_id = data.get("group_id")
+        if group_id is not None:
+            group = BorrowerGroup.objects.filter(pk=group_id, lender=lender).first()
+            if group is None:
+                raise NotFound("Group not found")
+            if not GroupMembership.objects.filter(group=group, borrower=borrower, active=True).exists():
+                raise UnprocessableEntity("Borrower is not an active member of that group")
         if not (float(product.min_amount) <= data["amount"] <= float(product.max_amount)):
             raise UnprocessableEntity("Amount is outside the product range")
         if not (product.min_term_instalments <= data["term_instalments"] <= product.max_term_instalments):
@@ -493,6 +504,7 @@ class ApplicationsView(APIView):
                 reference=application_service.next_reference(lender),
                 borrower=borrower,
                 product=product,
+                group_id=group_id,
                 amount=data["amount"],
                 term_instalments=data["term_instalments"],
                 purpose=data["purpose"],
@@ -923,6 +935,89 @@ class LoanReminderView(APIView):
                 f"Arrears reminder sent to {loan.borrower.full_name} ({note.status})",
             )
         return Response(ser.NotificationSerializer(note).data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------- groups
+
+def group_qs(lender):
+    return BorrowerGroup.objects.filter(lender=lender).prefetch_related("memberships__borrower")
+
+
+class GroupsView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def get(self, request):
+        return Response(ser.BorrowerGroupSerializer(group_qs(request.user.lender), many=True).data)
+
+    def post(self, request):
+        lender = request.user.lender
+        data = validated(ser.BorrowerGroupWriteSerializer, request.data)
+        ensure_branch(lender, data["branch_id"])
+        ensure_staff_member(lender, data["officer_id"])
+        group = BorrowerGroup.objects.create(
+            lender=lender,
+            branch_id=data["branch_id"],
+            officer_id=data["officer_id"],
+            name=data["name"],
+            meeting_day=data.get("meeting_day", ""),
+            meeting_frequency=data.get("meeting_frequency") or "weekly",
+            formed_on=data.get("formed_on") or timezone.now().date(),
+        )
+        audit.record(request.user, "created", "group", group.id, f'Group "{group.name}" formed')
+        return Response(ser.BorrowerGroupSerializer(group_qs(lender).get(pk=group.pk)).data, status=status.HTTP_201_CREATED)
+
+
+class GroupDetailView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def get(self, request, group_id):
+        group = group_qs(request.user.lender).filter(pk=group_id).first()
+        if group is None:
+            raise NotFound("Group not found")
+        return Response(ser.BorrowerGroupSerializer(group).data)
+
+    def patch(self, request, group_id):
+        group = BorrowerGroup.objects.filter(pk=group_id, lender=request.user.lender).first()
+        if group is None:
+            raise NotFound("Group not found")
+        if "active" in request.data:
+            group.active = bool(request.data["active"])
+            group.save(update_fields=["active"])
+        audit.record(request.user, "updated", "group", group.id, "Group updated")
+        return Response(ser.BorrowerGroupSerializer(group_qs(request.user.lender).get(pk=group.pk)).data)
+
+
+class GroupMembersView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def post(self, request, group_id):
+        lender = request.user.lender
+        group = BorrowerGroup.objects.filter(pk=group_id, lender=lender).first()
+        if group is None:
+            raise NotFound("Group not found")
+        data = validated(ser.GroupMemberAddSerializer, request.data)
+        borrower = Borrower.objects.filter(pk=data["borrower_id"], lender=lender).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        if GroupMembership.objects.filter(group=group, borrower=borrower).exists():
+            raise Conflict("That borrower is already in this group")
+        GroupMembership.objects.create(group=group, borrower=borrower, role=data["role"])
+        audit.record(request.user, "added", "group_member", group.id, f"{borrower.full_name} joined {group.name}")
+        return Response(ser.BorrowerGroupSerializer(group_qs(lender).get(pk=group.pk)).data, status=status.HTTP_201_CREATED)
+
+
+class GroupMemberDetailView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def delete(self, request, group_id, membership_id):
+        lender = request.user.lender
+        membership = GroupMembership.objects.filter(pk=membership_id, group__pk=group_id, group__lender=lender).first()
+        if membership is None:
+            raise NotFound("Membership not found")
+        name = membership.borrower.full_name
+        membership.delete()
+        audit.record(request.user, "removed", "group_member", group_id, f"{name} left the group")
+        return Response(ser.BorrowerGroupSerializer(group_qs(lender).get(pk=group_id)).data)
 
 
 # --------------------------------------------------------------------- savings

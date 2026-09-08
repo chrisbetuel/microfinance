@@ -3,10 +3,12 @@ import type {
   Application,
   AuditLogEntry,
   Borrower,
+  BorrowerGroup,
   Branch,
   CollectionActivity,
   CollectionActivityKind,
   CollectionOutcome,
+  GroupMemberRole,
   DisbursementChannel,
   Holiday,
   Lender,
@@ -71,6 +73,7 @@ interface StoreState {
   auditLog: AuditLogEntry[]
   notifications: Notification[]
   collectionActivities: CollectionActivity[]
+  groups: BorrowerGroup[]
 
   bootstrap: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
@@ -101,6 +104,7 @@ interface StoreState {
     borrowerId: string
     productId: string
     branchId: string
+    groupId?: string | null
     amount: number
     termInstalments: number
     purpose: string
@@ -136,6 +140,16 @@ interface StoreState {
     },
   ) => Promise<void>
   sendLoanReminder: (loanId: string) => Promise<void>
+
+  createGroup: (input: {
+    name: string
+    branchId: string
+    officerId: string
+    meetingDay?: string
+    meetingFrequency?: string
+  }) => Promise<string>
+  addGroupMember: (groupId: string, borrowerId: string, role: GroupMemberRole) => Promise<void>
+  removeGroupMember: (groupId: string, membershipId: string) => Promise<void>
 }
 
 const EMPTY = {
@@ -153,6 +167,7 @@ const EMPTY = {
   auditLog: [],
   notifications: [],
   collectionActivities: [],
+  groups: [],
 }
 
 export const useStore = create<StoreState>()((set, get) => {
@@ -183,6 +198,7 @@ export const useStore = create<StoreState>()((set, get) => {
       repayments,
       notifications,
       collectionActivities,
+      groups,
     ] = await Promise.all([
       api.get<Lender>('/lender'),
       api.get<Branch[]>('/branches'),
@@ -195,6 +211,7 @@ export const useStore = create<StoreState>()((set, get) => {
       api.get<Repayment[]>('/repayments'),
       api.get<Notification[]>('/notifications'),
       api.get<CollectionActivity[]>('/collection-activities'),
+      api.get<BorrowerGroup[]>('/groups'),
     ])
     set({
       lender: normalizeLender(lender),
@@ -208,6 +225,7 @@ export const useStore = create<StoreState>()((set, get) => {
       repayments,
       notifications,
       collectionActivities,
+      groups,
     })
     await refreshAudit()
   }
@@ -349,6 +367,7 @@ export const useStore = create<StoreState>()((set, get) => {
         borrowerId: input.borrowerId,
         productId: input.productId,
         branchId: input.branchId,
+        groupId: input.groupId ?? null,
         amount: input.amount,
         termInstalments: input.termInstalments,
         purpose: input.purpose,
@@ -464,6 +483,28 @@ export const useStore = create<StoreState>()((set, get) => {
       ])
       set({ collectionActivities, notifications })
       toast.success('Arrears reminder sent')
+      await refreshAudit()
+    },
+
+    createGroup: async (input) => {
+      const created = await api.post<BorrowerGroup>('/groups', input)
+      set((s) => ({ groups: [...s.groups, created] }))
+      toast.success('Group formed', created.name)
+      await refreshAudit()
+      return created.id
+    },
+
+    addGroupMember: async (groupId, borrowerId, role) => {
+      const updated = await api.post<BorrowerGroup>(`/groups/${groupId}/members`, { borrowerId, role })
+      set((s) => ({ groups: s.groups.map((g) => (g.id === groupId ? updated : g)) }))
+      toast.success('Member added')
+      await refreshAudit()
+    },
+
+    removeGroupMember: async (groupId, membershipId) => {
+      const updated = await api.del<BorrowerGroup>(`/groups/${groupId}/members/${membershipId}`)
+      set((s) => ({ groups: s.groups.map((g) => (g.id === groupId ? updated : g)) }))
+      toast.success('Member removed')
       await refreshAudit()
     },
   }

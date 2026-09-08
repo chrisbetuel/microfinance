@@ -27,6 +27,11 @@ urlpatterns = [
 
     path("savings", v.SavingsListView.as_view()),
 
+    path("groups", v.GroupsView.as_view()),
+    path("groups/<uuid:group_id>", v.GroupDetailView.as_view()),
+    path("groups/<uuid:group_id>/members", v.GroupMembersView.as_view()),
+    path("groups/<uuid:group_id>/members/<uuid:membership_id>", v.GroupMemberDetailView.as_view()),
+
     path("products", v.ProductsView.as_view()),
     path("products/<uuid:product_id>", v.ProductDetailView.as_view()),
 

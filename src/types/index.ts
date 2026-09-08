@@ -186,6 +186,7 @@ export interface Application {
   borrowerId: string
   productId: string
   branchId: string
+  groupId: string | null
   amount: number
   termInstalments: number
   purpose: string
@@ -228,6 +229,7 @@ export interface Loan {
   borrowerId: string
   productId: string
   branchId: string
+  groupId: string | null
   principal: number
   netDisbursed: number
   feesDeducted: number
@@ -249,6 +251,30 @@ export interface Loan {
   closedAt: string | null
   closureReason: string
   createdAt: string
+}
+
+export type GroupMemberRole = 'member' | 'chair' | 'secretary' | 'treasurer'
+
+export interface GroupMembership {
+  id: string
+  borrowerId: string
+  borrowerName: string
+  role: GroupMemberRole
+  joinedOn: string
+  active: boolean
+}
+
+export interface BorrowerGroup {
+  id: string
+  branchId: string
+  officerId: string
+  name: string
+  meetingDay: string
+  meetingFrequency: string
+  formedOn: string
+  active: boolean
+  createdAt: string
+  memberships: GroupMembership[]
 }
 
 export type SavingsTransactionKind = 'deposit' | 'withdrawal' | 'loan_deduction' | 'release'

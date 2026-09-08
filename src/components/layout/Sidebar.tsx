@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   BarChart3,
   PhoneCall,
+  UsersRound,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { shade } from '../../lib/color'
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/lender-setup', label: 'Lender Setup', icon: Building2 },
   { to: '/borrowers', label: 'Borrowers', icon: Users },
+  { to: '/groups', label: 'Groups', icon: UsersRound },
   { to: '/products', label: 'Loan Products', icon: SlidersHorizontal },
   { to: '/applications', label: 'Applications & Approvals', icon: FileCheck2 },
   { to: '/disbursement', label: 'Disbursement', icon: Landmark },

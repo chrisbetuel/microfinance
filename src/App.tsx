@@ -18,6 +18,7 @@ import Repayments from './pages/repayments/Repayments'
 import SecurityAudit from './pages/security/SecurityAudit'
 import Reports from './pages/reports/Reports'
 import Collections from './pages/collections/Collections'
+import Groups from './pages/groups/Groups'
 
 function LoadingScreen() {
   return (
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/lender-setup" element={<LenderSetup />} />
             <Route path="/borrowers" element={<BorrowersList />} />
             <Route path="/borrowers/:id" element={<BorrowerDetail />} />
+            <Route path="/groups" element={<Groups />} />
             <Route path="/products" element={<ProductsList />} />
             <Route path="/products/new" element={<ProductEditor />} />
             <Route path="/products/:id" element={<ProductEditor />} />

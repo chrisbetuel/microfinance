@@ -311,13 +311,14 @@ class ApplicationSerializer(serializers.ModelSerializer):
     branch_id = Uuid()
     borrower_id = Uuid()
     product_id = Uuid()
+    group_id = Uuid(allow_null=True)
     created_by = Uuid()
     approvals = ApprovalDecisionSerializer(many=True, read_only=True)
 
     class Meta:
         model = models.Application
         fields = [
-            "id", "lender_id", "branch_id", "reference", "borrower_id", "product_id", "amount",
+            "id", "lender_id", "branch_id", "reference", "borrower_id", "product_id", "group_id", "amount",
             "term_instalments", "purpose", "status", "declared_income", "declared_expenses",
             "affordability_pass", "duplicate_check_pass", "blacklist_check_pass",
             "credit_bureau_consent", "score", "score_recommendation", "required_approver_role",
@@ -329,6 +330,7 @@ class ApplicationCreateSerializer(serializers.Serializer):
     borrower_id = serializers.UUIDField()
     product_id = serializers.UUIDField()
     branch_id = serializers.UUIDField(required=False, allow_null=True)
+    group_id = serializers.UUIDField(required=False, allow_null=True)
     amount = serializers.FloatField()
     term_instalments = serializers.IntegerField()
     purpose = serializers.CharField(allow_blank=True)
@@ -359,6 +361,7 @@ class LoanSerializer(serializers.ModelSerializer):
     application_id = Uuid()
     borrower_id = Uuid()
     product_id = Uuid()
+    group_id = Uuid(allow_null=True)
     schedule = ScheduleInstalmentSerializer(many=True, read_only=True)
     disbursement = serializers.SerializerMethodField()
 
@@ -366,6 +369,7 @@ class LoanSerializer(serializers.ModelSerializer):
         model = models.Loan
         fields = [
             "id", "lender_id", "branch_id", "application_id", "borrower_id", "product_id",
+            "group_id",
             "principal", "net_disbursed", "fees_deducted", "savings_deducted", "status", "outstanding_balance",
             "days_in_arrears", "arrears_amount", "restructure_count", "restructured_at",
             "closed_at", "closure_reason", "disbursement", "created_at", "schedule",
@@ -468,6 +472,43 @@ class CollectionActivitySerializer(serializers.ModelSerializer):
 
     def get_promise_status(self, obj):
         return getattr(obj, "_promise_status", None)
+
+
+class GroupMembershipSerializer(serializers.ModelSerializer):
+    borrower_id = Uuid()
+    borrower_name = serializers.CharField(source="borrower.full_name", read_only=True)
+
+    class Meta:
+        model = models.GroupMembership
+        fields = ["id", "borrower_id", "borrower_name", "role", "joined_on", "active"]
+
+
+class BorrowerGroupSerializer(serializers.ModelSerializer):
+    lender_id = Uuid()
+    branch_id = Uuid()
+    officer_id = Uuid()
+    memberships = GroupMembershipSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = models.BorrowerGroup
+        fields = [
+            "id", "lender_id", "branch_id", "officer_id", "name", "meeting_day",
+            "meeting_frequency", "formed_on", "active", "created_at", "memberships",
+        ]
+
+
+class BorrowerGroupWriteSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    branch_id = serializers.UUIDField()
+    officer_id = serializers.UUIDField()
+    meeting_day = serializers.CharField(required=False, allow_blank=True, default="")
+    meeting_frequency = serializers.CharField(required=False, allow_blank=True, default="weekly")
+    formed_on = serializers.DateField(required=False)
+
+
+class GroupMemberAddSerializer(serializers.Serializer):
+    borrower_id = serializers.UUIDField()
+    role = serializers.ChoiceField(choices=models.GroupMembership.Role.choices, required=False, default="member")
 
 
 class SavingsTransactionSerializer(serializers.ModelSerializer):

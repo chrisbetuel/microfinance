@@ -19,8 +19,10 @@ from lms.models import (
     ApprovalDecision,
     AuditLogEntry,
     Borrower,
+    BorrowerGroup,
     Branch,
     CollectionActivity,
+    GroupMembership,
     Lender,
     Loan,
     LoanProduct,
@@ -89,6 +91,8 @@ class Command(BaseCommand):
         SavingsTransaction.objects.filter(account__lender=lender).delete()
         SavingsAccount.objects.filter(lender=lender).delete()
         TillReconciliation.objects.filter(lender=lender).delete()
+        GroupMembership.objects.filter(group__lender=lender).delete()
+        BorrowerGroup.objects.filter(lender=lender).delete()
         ApprovalDecision.objects.filter(application__lender=lender).delete()
         Application.objects.filter(lender=lender).delete()
         Borrower.objects.filter(lender=lender).delete()
@@ -179,6 +183,21 @@ class Command(BaseCommand):
             ))
             borrowers[-1].history.create(label="File opened", detail=f"Registered at {branch.name} branch")
             audit_record(officer, "created", "borrower", borrowers[-1].id, f'Borrower "{name}" registered')
+
+        # A solidarity group at the Kariakoo branch
+        kariakoo = branches[1]
+        group_officer = next(o for o in officers if o.branch_id == kariakoo.id)
+        group_members = [b for b in borrowers if b.branch_id == kariakoo.id and not b.blacklisted][:4]
+        if len(group_members) >= 3:
+            grp = BorrowerGroup.objects.create(
+                lender=lender, branch=kariakoo, officer=group_officer, name="Umoja Solidarity Group",
+                meeting_day="Wednesday", meeting_frequency="weekly",
+                formed_on=(timezone.now() - timedelta(days=120)).date(),
+            )
+            for idx, member in enumerate(group_members):
+                role = ["chair", "secretary", "treasurer", "member"][min(idx, 3)]
+                GroupMembership.objects.create(group=grp, borrower=member, role=role)
+            audit_record(group_officer, "created", "group", grp.id, 'Group "Umoja Solidarity Group" formed')
 
         now = timezone.now()
         ref_n = 0

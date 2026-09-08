@@ -34,6 +34,7 @@ def create_loan_from_application(
         application=application,
         borrower=application.borrower,
         product=application.product,
+        group_id=application.group_id,
         principal=amount,
         schedule_principal=amount,
         net_disbursed=amount - fees_deducted - savings_deducted,

@@ -206,6 +206,7 @@ class Application(models.Model):
 
     borrower = models.ForeignKey(Borrower, on_delete=models.PROTECT, related_name="applications")
     product = models.ForeignKey(LoanProduct, on_delete=models.PROTECT, related_name="+")
+    group = models.ForeignKey("BorrowerGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     term_instalments = models.IntegerField()
@@ -256,6 +257,7 @@ class Loan(models.Model):
     application = models.OneToOneField(Application, on_delete=models.PROTECT, related_name="loan")
     borrower = models.ForeignKey(Borrower, on_delete=models.PROTECT, related_name="loans")
     product = models.ForeignKey(LoanProduct, on_delete=models.PROTECT, related_name="+")
+    group = models.ForeignKey("BorrowerGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="loans")
 
     principal = models.DecimalField(max_digits=14, decimal_places=2)
     net_disbursed = models.DecimalField(max_digits=14, decimal_places=2)
@@ -369,6 +371,43 @@ class AuditLogEntry(models.Model):
 
     class Meta:
         ordering = ["-timestamp"]
+
+
+class BorrowerGroup(models.Model):
+    """A joint-liability / solidarity group. Members guarantee each other's loans."""
+
+    class Meta:
+        ordering = ["name"]
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="groups")
+    branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="+")
+    officer = models.ForeignKey(Staff, on_delete=models.PROTECT, related_name="+")
+    name = models.CharField(max_length=150)
+    meeting_day = models.CharField(max_length=12, blank=True, default="")  # e.g. "Tuesday"
+    meeting_frequency = models.CharField(max_length=12, blank=True, default="weekly")
+    formed_on = models.DateField()
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+
+class GroupMembership(models.Model):
+    class Role(models.TextChoices):
+        MEMBER = "member"
+        CHAIR = "chair"
+        SECRETARY = "secretary"
+        TREASURER = "treasurer"
+
+    id = uuid_pk()
+    group = models.ForeignKey(BorrowerGroup, on_delete=models.CASCADE, related_name="memberships")
+    borrower = models.ForeignKey(Borrower, on_delete=models.PROTECT, related_name="group_memberships")
+    role = models.CharField(max_length=12, choices=Role.choices, default=Role.MEMBER)
+    joined_on = models.DateField(default=timezone.now)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [("group", "borrower")]
+        ordering = ["role", "joined_on"]
 
 
 class SavingsAccount(models.Model):

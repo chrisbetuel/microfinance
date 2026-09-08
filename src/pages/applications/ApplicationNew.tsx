@@ -17,7 +17,9 @@ export default function ApplicationNew() {
   const currentStaffId = useStore((s) => s.currentStaffId)
   const canEdit = useCanEdit()
 
+  const groups = useStore((s) => s.groups)
   const [borrowerId, setBorrowerId] = useState(borrowers[0]?.id ?? '')
+  const [groupId, setGroupId] = useState('')
   const [productId, setProductId] = useState(products[0]?.id ?? '')
   const [amount, setAmount] = useState(products[0]?.minAmount ?? 0)
   const [term, setTerm] = useState(products[0]?.minTermInstalments ?? 1)
@@ -63,6 +65,7 @@ export default function ApplicationNew() {
               borrowerId,
               productId,
               branchId: borrower.branchId,
+              groupId: groupId || null,
               amount,
               termInstalments: term,
               purpose,
@@ -75,7 +78,14 @@ export default function ApplicationNew() {
           }}
         >
           <Field label="Borrower">
-            <select className={inputClass} value={borrowerId} onChange={(e) => setBorrowerId(e.target.value)}>
+            <select
+              className={inputClass}
+              value={borrowerId}
+              onChange={(e) => {
+                setBorrowerId(e.target.value)
+                setGroupId('')
+              }}
+            >
               {borrowers.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.fullName} {b.blacklisted ? '(blacklisted)' : ''}
@@ -83,6 +93,25 @@ export default function ApplicationNew() {
               ))}
             </select>
           </Field>
+
+          {(() => {
+            const memberGroups = groups.filter((g) =>
+              g.memberships.some((m) => m.borrowerId === borrowerId && m.active),
+            )
+            if (memberGroups.length === 0) return null
+            return (
+              <Field label="Group loan" hint="Optional — ties this loan to a solidarity group">
+                <select className={inputClass} value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+                  <option value="">Individual loan</option>
+                  {memberGroups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )
+          })()}
 
           <Field label="Loan product">
             <select
