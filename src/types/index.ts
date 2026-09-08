@@ -37,6 +37,7 @@ export interface Lender {
   smsBalance: number
   smsSenderName: string
   smsSenderApproved: boolean
+  sessionTimeoutMinutes: number
 }
 
 export interface Branch {

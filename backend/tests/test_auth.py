@@ -40,6 +40,23 @@ def test_unauthenticated_is_401(client):
     assert client.get("/auth/me").status_code == 401
 
 
+def test_lender_session_timeout_is_configurable(client):
+    resp = client.post(
+        "/auth/register",
+        {"lenderName": "T", "adminName": "A", "adminEmail": "t@t.co", "adminPassword": "password1"},
+        format="json",
+    )
+    auth = {"HTTP_AUTHORIZATION": f"Bearer {resp.json()['accessToken']}"}
+
+    assert client.get("/lender", **auth).json()["sessionTimeoutMinutes"] == 20
+
+    ok = client.patch("/lender", {"sessionTimeoutMinutes": 5}, format="json", **auth)
+    assert ok.status_code == 200
+    assert ok.json()["sessionTimeoutMinutes"] == 5
+
+    assert client.patch("/lender", {"sessionTimeoutMinutes": 0}, format="json", **auth).status_code == 400
+
+
 def test_user_can_update_own_profile_but_not_role(client):
     resp = client.post(
         "/auth/register",

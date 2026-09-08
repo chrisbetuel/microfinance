@@ -54,6 +54,7 @@ class LenderSerializer(serializers.ModelSerializer):
             "id", "name", "licence_number", "licence_expiry", "address", "phone", "email",
             "logo_initials", "brand_color", "currency", "language", "plan_level",
             "staff_limit", "active_loan_limit", "sms_balance", "sms_sender_name", "sms_sender_approved",
+            "session_timeout_minutes",
         ]
 
 
@@ -68,6 +69,7 @@ class LenderUpdateSerializer(serializers.Serializer):
     brand_color = serializers.CharField(required=False, max_length=7)
     currency = serializers.CharField(required=False)
     language = serializers.CharField(required=False)
+    session_timeout_minutes = serializers.IntegerField(required=False, min_value=1, max_value=1440)
 
 
 # ----------------------------------------------------------------------- branches

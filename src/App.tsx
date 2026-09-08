@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from './store/useStore'
 import { AppShell } from './components/layout/AppShell'
 import { Toaster } from './components/ui/Toaster'
+import { SESSION_EXPIRED_EVENT, clearActivity } from './lib/session'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import LenderSetup from './pages/lender/LenderSetup'
@@ -35,11 +36,29 @@ function LoadingScreen() {
 export default function App() {
   const status = useStore((s) => s.status)
   const bootstrap = useStore((s) => s.bootstrap)
+  const logout = useStore((s) => s.logout)
   const location = useLocation()
+  const navigate = useNavigate()
 
   useEffect(() => {
     bootstrap()
   }, [bootstrap])
+
+  useEffect(() => {
+    let handled = false
+    function onExpired() {
+      if (handled) return
+      handled = true
+      clearActivity()
+      logout()
+      navigate('/login', { replace: true })
+      setTimeout(() => {
+        handled = false
+      }, 1000)
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+  }, [logout, navigate])
 
   return (
     <>

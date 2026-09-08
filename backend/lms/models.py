@@ -31,6 +31,8 @@ class Lender(models.Model):
     sms_balance = models.IntegerField(default=25)  # trial credit for a new workspace
     sms_sender_name = models.CharField(max_length=11, blank=True, default="")
     sms_sender_approved = models.BooleanField(default=False)
+    # Minutes of inactivity before a signed-in user is automatically logged out.
+    session_timeout_minutes = models.IntegerField(default=20)
     created_at = models.DateTimeField(default=timezone.now)
 
 

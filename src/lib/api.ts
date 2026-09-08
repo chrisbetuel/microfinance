@@ -3,6 +3,8 @@
 // The backend speaks camelCase on the wire (see backend/app/schemas/base.py), so
 // request and response bodies map directly onto the types in src/types.
 
+import { emitSessionExpired } from './session'
+
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '')
 const TOKEN_KEY = 'lms-token'
 
@@ -68,6 +70,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     const detail =
       (data && typeof data === 'object' && 'detail' in data && String((data as { detail: unknown }).detail)) ||
       res.statusText
+    // A 401 on a request that carried a token means the token is no longer
+    // accepted — treat it as an expired session, not a generic error.
+    if (res.status === 401 && token && path !== '/auth/login' && path !== '/auth/register') {
+      emitSessionExpired('token')
+    }
     throw new ApiError(res.status, detail)
   }
   return data as T

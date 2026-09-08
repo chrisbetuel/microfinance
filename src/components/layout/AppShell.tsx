@@ -3,11 +3,13 @@ import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { RouteGuard } from './RouteGuard'
 import { CommandPalette } from '../CommandPalette'
+import { IdleTimeoutGuard } from './IdleTimeoutGuard'
 
 export function AppShell() {
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100">
       <CommandPalette />
+      <IdleTimeoutGuard />
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar />

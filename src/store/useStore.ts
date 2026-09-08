@@ -21,6 +21,7 @@ import type {
 } from '../types'
 import { api, ApiError, getToken, setToken } from '../lib/api'
 import { toast } from '../lib/toast'
+import { cachedTimeoutMinutes, clearActivity, idleMs, markActivity } from '../lib/session'
 
 export interface CurrentUser {
   id: string
@@ -55,6 +56,7 @@ const EMPTY_LENDER: Lender = {
   smsBalance: 0,
   smsSenderName: '',
   smsSenderApproved: false,
+  sessionTimeoutMinutes: 20,
 }
 
 interface StoreState {
@@ -246,10 +248,18 @@ export const useStore = create<StoreState>()((set, get) => {
         set({ status: 'anonymous', ...EMPTY })
         return
       }
+      // Been idle past the timeout since the tab was last open? Don't restore.
+      if (idleMs() >= cachedTimeoutMinutes() * 60_000) {
+        setToken(null)
+        clearActivity()
+        set({ status: 'anonymous', ...EMPTY })
+        return
+      }
       try {
         const me = await api.get<CurrentUser>('/auth/me')
         set({ currentUser: me, currentStaffId: me.id })
         await hydrate()
+        markActivity()
         set({ status: 'ready' })
       } catch {
         setToken(null)
@@ -260,12 +270,14 @@ export const useStore = create<StoreState>()((set, get) => {
     login: async (email, password) => {
       const { accessToken } = await api.post<{ accessToken: string }>('/auth/login', { email, password })
       setToken(accessToken)
+      markActivity()
       set({ status: 'loading' })
       await get().bootstrap()
     },
 
     logout: () => {
       setToken(null)
+      clearActivity()
       set({ status: 'anonymous', ...EMPTY })
     },
 

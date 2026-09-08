@@ -94,6 +94,16 @@ function ProfileTab() {
           <Field label="Logo initials">
             <input maxLength={3} className={inputClass} value={form.logoInitials} onChange={(e) => setForm({ ...form, logoInitials: e.target.value.toUpperCase() })} />
           </Field>
+          <Field label="Auto sign-out after (minutes idle)" hint="Signed-in users are logged out after this long with no activity">
+            <input
+              type="number"
+              min={1}
+              max={1440}
+              className={inputClass}
+              value={form.sessionTimeoutMinutes}
+              onChange={(e) => setForm({ ...form, sessionTimeoutMinutes: Number(e.target.value) })}
+            />
+          </Field>
           {canEdit && (
             <div className="sm:col-span-2">
               <Button type="submit">Save changes</Button>

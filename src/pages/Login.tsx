@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { takeLogoutReason } from '../lib/session'
 import { Lock, Mail, Send } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { Button } from '../components/ui/Button'
@@ -17,6 +18,13 @@ export default function Login() {
   const navigate = useNavigate()
   const login = useStore((s) => s.login)
   const bootstrap = useStore((s) => s.bootstrap)
+
+  const [notice] = useState(() => {
+    const reason = takeLogoutReason()
+    if (reason === 'idle') return 'You were signed out after a period of inactivity.'
+    if (reason === 'token') return 'Your session ended. Please sign in again.'
+    return null
+  })
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
@@ -68,6 +76,10 @@ export default function Login() {
               Sele<span className="text-accent-600">MF</span>
             </span>
           </div>
+
+          {notice && mode === 'login' && (
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{notice}</p>
+          )}
 
           <form onSubmit={submit} className="space-y-4">
             {mode === 'register' && (
