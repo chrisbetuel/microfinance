@@ -166,11 +166,22 @@ function StaffTab() {
   const staff = useStore((s) => s.staff)
   const branches = useStore((s) => s.branches)
   const addStaff = useStore((s) => s.addStaff)
+  const updateStaff = useStore((s) => s.updateStaff)
   const toggleStaffActive = useStore((s) => s.toggleStaffActive)
   const canEdit = useCanEdit()
   const [open, setOpen] = useState(false)
   const emptyForm = { name: '', role: 'loan_officer' as StaffRole, branchId: branches[0]?.id ?? '', approvalLimit: 0, email: '', phone: '', password: '', active: true }
   const [form, setForm] = useState(emptyForm)
+
+  const [editId, setEditId] = useState<string | null>(null)
+  const editing = staff.find((s) => s.id === editId)
+  const [editForm, setEditForm] = useState({ name: '', role: 'loan_officer' as StaffRole, branchId: '', approvalLimit: 0 })
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  function openEdit(m: typeof staff[number]) {
+    setEditForm({ name: m.name, role: m.role, branchId: m.branchId ?? '', approvalLimit: m.approvalLimit })
+    setEditId(m.id)
+  }
 
   return (
     <div>
@@ -194,13 +205,70 @@ function StaffTab() {
             header: '',
             cell: (s) =>
               canEdit && (
-                <button className="text-xs font-medium text-slate-500 hover:text-red-600" onClick={() => void toggleStaffActive(s.id)}>
-                  {s.active ? 'Suspend' : 'Reactivate'}
-                </button>
+                <div className="flex justify-end gap-3">
+                  <button className="text-xs font-medium text-brand-600 hover:underline" onClick={() => openEdit(s)}>
+                    Edit
+                  </button>
+                  <button className="text-xs font-medium text-slate-500 hover:text-red-600" onClick={() => void toggleStaffActive(s.id)}>
+                    {s.active ? 'Suspend' : 'Reactivate'}
+                  </button>
+                </div>
               ),
           },
         ]}
       />
+
+      <Modal open={!!editing} onClose={() => setEditId(null)} title={`Edit — ${editing?.name ?? ''}`}>
+        {editing && (
+          <form
+            className="space-y-4"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setSavingEdit(true)
+              try {
+                await updateStaff(editing.id, {
+                  name: editForm.name,
+                  role: editForm.role,
+                  branchId: editForm.branchId || null,
+                  approvalLimit: editForm.approvalLimit,
+                })
+                setEditId(null)
+              } finally {
+                setSavingEdit(false)
+              }
+            }}
+          >
+            <Field label="Full name">
+              <input required className={inputClass} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+            </Field>
+            <Field label="Role">
+              <select className={inputClass} value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value as StaffRole })}>
+                {Object.entries(STAFF_ROLE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Branch">
+              <select className={inputClass} value={editForm.branchId} onChange={(e) => setEditForm({ ...editForm, branchId: e.target.value })}>
+                <option value="">All branches</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Approval limit" hint="0 if this role does not approve loans">
+              <input type="number" className={inputClass} value={editForm.approvalLimit} onChange={(e) => setEditForm({ ...editForm, approvalLimit: Number(e.target.value) })} />
+            </Field>
+            <Button type="submit" className="w-full" disabled={savingEdit}>
+              {savingEdit ? 'Saving…' : 'Save changes'}
+            </Button>
+          </form>
+        )}
+      </Modal>
       <Modal open={open} onClose={() => setOpen(false)} title="Add staff member">
         <form
           className="space-y-4"

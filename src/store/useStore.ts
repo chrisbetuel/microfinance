@@ -30,6 +30,7 @@ export interface CurrentUser {
   role: StaffRole
   branchId: string | null
   approvalLimit: number
+  phone: string
 }
 
 type LoadStatus = 'loading' | 'anonymous' | 'ready'
@@ -79,9 +80,15 @@ interface StoreState {
   login: (email: string, password: string) => Promise<void>
   logout: () => void
 
+  updateProfile: (patch: { name?: string; phone?: string }) => Promise<void>
+
   updateLender: (patch: Partial<Lender>) => Promise<void>
   addBranch: (branch: Omit<Branch, 'id' | 'lenderId'>) => Promise<void>
   addStaff: (staff: Omit<Staff, 'id'> & { password: string }) => Promise<void>
+  updateStaff: (
+    staffId: string,
+    patch: { name?: string; role?: StaffRole; branchId?: string | null; approvalLimit?: number; phone?: string },
+  ) => Promise<void>
   toggleStaffActive: (staffId: string) => Promise<void>
   addHoliday: (holiday: Omit<Holiday, 'id'>) => Promise<void>
   removeHoliday: (id: string) => Promise<void>
@@ -262,6 +269,15 @@ export const useStore = create<StoreState>()((set, get) => {
       set({ status: 'anonymous', ...EMPTY })
     },
 
+    updateProfile: async (patch) => {
+      const me = await api.patch<CurrentUser>('/auth/me', patch)
+      set((s) => ({
+        currentUser: me,
+        staff: s.staff.map((m) => (m.id === me.id ? { ...m, name: me.name, phone: me.phone } : m)),
+      }))
+      toast.success('Profile updated')
+    },
+
     updateLender: async (patch) => {
       const body: Record<string, unknown> = { ...patch }
       if (body.licenceExpiry === '') body.licenceExpiry = null
@@ -282,6 +298,13 @@ export const useStore = create<StoreState>()((set, get) => {
       const created = await api.post<Staff>('/staff', staff)
       set((s) => ({ staff: [...s.staff, created] }))
       toast.success('Staff member added', created.name)
+      await refreshAudit()
+    },
+
+    updateStaff: async (staffId, patch) => {
+      const updated = await api.patch<Staff>(`/staff/${staffId}`, patch)
+      set((s) => ({ staff: s.staff.map((m) => (m.id === staffId ? updated : m)) }))
+      toast.success('Staff account updated', updated.name)
       await refreshAudit()
     },
 

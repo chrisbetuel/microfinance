@@ -35,7 +35,14 @@ class CurrentStaffSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Staff
-        fields = ["id", "lender_id", "name", "email", "role", "branch_id", "approval_limit"]
+        fields = ["id", "lender_id", "name", "email", "role", "branch_id", "approval_limit", "phone"]
+
+
+class ProfileUpdateSerializer(serializers.Serializer):
+    """Self-service — a user may change their own name and phone, nothing else."""
+
+    name = serializers.CharField(required=False)
+    phone = serializers.CharField(required=False, allow_blank=True)
 
 
 # ------------------------------------------------------------------------- lender

@@ -121,6 +121,18 @@ class MeView(APIView):
     def get(self, request):
         return Response(ser.CurrentStaffSerializer(request.user).data)
 
+    def patch(self, request):
+        data = validated(ser.ProfileUpdateSerializer, request.data)
+        fields = []
+        for f in ("name", "phone"):
+            if f in data:
+                setattr(request.user, f, data[f])
+                fields.append(f)
+        if fields:
+            request.user.save(update_fields=fields)
+            audit.record(request.user, "updated", "staff", request.user.id, "Updated own profile")
+        return Response(ser.CurrentStaffSerializer(request.user).data)
+
 
 # ----------------------------------------------------------------------- lender
 

@@ -38,3 +38,21 @@ def test_duplicate_email_rejected(client):
 def test_unauthenticated_is_401(client):
     assert client.get("/borrowers").status_code == 401
     assert client.get("/auth/me").status_code == 401
+
+
+def test_user_can_update_own_profile_but_not_role(client):
+    resp = client.post(
+        "/auth/register",
+        {"lenderName": "P", "adminName": "Old Name", "adminEmail": "p@p.co", "adminPassword": "password1"},
+        format="json",
+    )
+    auth = {"HTTP_AUTHORIZATION": f"Bearer {resp.json()['accessToken']}"}
+
+    patched = client.patch(
+        "/auth/me", {"name": "New Name", "phone": "+255700111222", "role": "auditor"}, format="json", **auth
+    )
+    assert patched.status_code == 200
+    body = patched.json()
+    assert body["name"] == "New Name"
+    assert body["phone"] == "+255700111222"
+    assert body["role"] == "lender_admin"  # role change ignored

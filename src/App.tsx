@@ -19,6 +19,7 @@ import SecurityAudit from './pages/security/SecurityAudit'
 import Reports from './pages/reports/Reports'
 import Collections from './pages/collections/Collections'
 import Groups from './pages/groups/Groups'
+import Profile from './pages/Profile'
 
 function LoadingScreen() {
   return (
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route element={<AppShell />}>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/profile" element={<Profile />} />
             <Route path="/lender-setup" element={<LenderSetup />} />
             <Route path="/borrowers" element={<BorrowersList />} />
             <Route path="/borrowers/:id" element={<BorrowerDetail />} />

@@ -1,4 +1,4 @@
-import { LogOut, MessageSquare, ChevronDown, Search, Sun, Moon, Monitor } from 'lucide-react'
+import { LogOut, MessageSquare, ChevronDown, Search, Sun, Moon, Monitor, UserCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
@@ -82,6 +82,17 @@ export function Topbar() {
                   <p className="text-sm font-medium text-slate-800">{currentUser.name}</p>
                   <p className="text-xs text-slate-400">{currentUser.email}</p>
                 </div>
+                <div className="border-t border-slate-100" />
+                <button
+                  onClick={() => {
+                    setOpen(false)
+                    navigate('/profile')
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+                >
+                  <UserCircle size={14} className="text-slate-400" />
+                  My profile
+                </button>
                 <div className="border-t border-slate-100" />
                 <button
                   onClick={() => {
