@@ -445,6 +445,12 @@ class AuditLogEntry(models.Model):
 class BorrowerGroup(models.Model):
     """A joint-liability / solidarity group. Members guarantee each other's loans."""
 
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        ACTIVE = "active"
+        SUSPENDED = "suspended"
+        CLOSED = "closed"
+
     class Meta:
         ordering = ["name"]
 
@@ -452,11 +458,25 @@ class BorrowerGroup(models.Model):
     lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="groups")
     branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="+")
     officer = models.ForeignKey(Staff, on_delete=models.PROTECT, related_name="+")
+    group_number = models.CharField(max_length=20, blank=True, default="", db_index=True)
     name = models.CharField(max_length=150)
+    group_type = models.CharField(max_length=20, blank=True, default="general")
+    purpose = models.TextField(blank=True, default="")
+    # location
+    region = models.CharField(max_length=100, blank=True, default="")
+    district = models.CharField(max_length=100, blank=True, default="")
+    ward = models.CharField(max_length=100, blank=True, default="")
+    location = models.CharField(max_length=200, blank=True, default="")
+    # meetings
+    meeting_location = models.CharField(max_length=200, blank=True, default="")
     meeting_day = models.CharField(max_length=12, blank=True, default="")  # e.g. "Tuesday"
-    meeting_frequency = models.CharField(max_length=12, blank=True, default="weekly")
+    meeting_frequency = models.CharField(max_length=12, blank=True, default="weekly")  # weekly | biweekly | monthly
+    meeting_time = models.CharField(max_length=10, blank=True, default="")
+    # finance
+    loan_limit = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     formed_on = models.DateField()
-    active = models.BooleanField(default=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
+    active = models.BooleanField(default=True)  # mirrors status == active, kept for older code
     created_at = models.DateTimeField(default=timezone.now)
 
 
@@ -467,16 +487,67 @@ class GroupMembership(models.Model):
         SECRETARY = "secretary"
         TREASURER = "treasurer"
 
+    class Status(models.TextChoices):
+        ACTIVE = "active"
+        INACTIVE = "inactive"
+        SUSPENDED = "suspended"
+        LEFT = "left"
+
     id = uuid_pk()
     group = models.ForeignKey(BorrowerGroup, on_delete=models.CASCADE, related_name="memberships")
     borrower = models.ForeignKey(Borrower, on_delete=models.PROTECT, related_name="group_memberships")
+    membership_number = models.CharField(max_length=30, blank=True, default="")
     role = models.CharField(max_length=12, choices=Role.choices, default=Role.MEMBER)
     joined_on = models.DateField(default=timezone.now)
-    active = models.BooleanField(default=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
+    left_on = models.DateField(null=True, blank=True)
+    active = models.BooleanField(default=True)  # mirrors status == active
 
     class Meta:
         unique_together = [("group", "borrower")]
         ordering = ["role", "joined_on"]
+
+
+class GroupMeeting(models.Model):
+    id = uuid_pk()
+    group = models.ForeignKey(BorrowerGroup, on_delete=models.CASCADE, related_name="meetings")
+    date = models.DateField()
+    location = models.CharField(max_length=200, blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    collection_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    recorded_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-date", "-created_at"]
+
+
+class GroupAttendance(models.Model):
+    id = uuid_pk()
+    meeting = models.ForeignKey(GroupMeeting, on_delete=models.CASCADE, related_name="attendance")
+    membership = models.ForeignKey(GroupMembership, on_delete=models.CASCADE, related_name="+")
+    present = models.BooleanField(default=True)
+    contribution = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+
+
+class GroupDocument(models.Model):
+    id = uuid_pk()
+    group = models.ForeignKey(BorrowerGroup, on_delete=models.CASCADE, related_name="documents")
+    name = models.CharField(max_length=200)
+    type = models.CharField(max_length=100)
+    uploaded_at = models.DateTimeField(default=timezone.now)
+
+
+class GroupHistoryEvent(models.Model):
+    id = uuid_pk()
+    group = models.ForeignKey(BorrowerGroup, on_delete=models.CASCADE, related_name="history")
+    date = models.DateTimeField(default=timezone.now)
+    label = models.CharField(max_length=200)
+    detail = models.TextField(blank=True, default="")
+    by = models.CharField(max_length=150, blank=True, default="")
+
+    class Meta:
+        ordering = ["-date"]
 
 
 class SavingsAccount(models.Model):

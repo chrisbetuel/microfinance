@@ -540,10 +540,43 @@ class CollectionActivitySerializer(serializers.ModelSerializer):
 class GroupMembershipSerializer(serializers.ModelSerializer):
     borrower_id = Uuid()
     borrower_name = serializers.CharField(source="borrower.full_name", read_only=True)
+    borrower_phone = serializers.CharField(source="borrower.phone", read_only=True)
+    customer_number = serializers.CharField(source="borrower.customer_number", read_only=True)
 
     class Meta:
         model = models.GroupMembership
-        fields = ["id", "borrower_id", "borrower_name", "role", "joined_on", "active"]
+        fields = [
+            "id", "borrower_id", "borrower_name", "borrower_phone", "customer_number", "membership_number",
+            "role", "joined_on", "status", "left_on", "active",
+        ]
+
+
+class GroupDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.GroupDocument
+        fields = ["id", "name", "type", "uploaded_at"]
+
+
+class GroupHistoryEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.GroupHistoryEvent
+        fields = ["id", "date", "label", "detail", "by"]
+
+
+class GroupAttendanceSerializer(serializers.ModelSerializer):
+    membership_id = Uuid()
+
+    class Meta:
+        model = models.GroupAttendance
+        fields = ["id", "membership_id", "present", "contribution"]
+
+
+class GroupMeetingSerializer(serializers.ModelSerializer):
+    attendance = GroupAttendanceSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = models.GroupMeeting
+        fields = ["id", "date", "location", "notes", "collection_amount", "recorded_by", "created_at", "attendance"]
 
 
 class BorrowerGroupSerializer(serializers.ModelSerializer):
@@ -551,27 +584,107 @@ class BorrowerGroupSerializer(serializers.ModelSerializer):
     branch_id = Uuid()
     officer_id = Uuid()
     memberships = GroupMembershipSerializer(many=True, read_only=True)
+    documents = GroupDocumentSerializer(many=True, read_only=True)
+    history = GroupHistoryEventSerializer(many=True, read_only=True)
+    meetings = GroupMeetingSerializer(many=True, read_only=True)
+    savings_total = serializers.SerializerMethodField()
+    contributions_total = serializers.SerializerMethodField()
 
     class Meta:
         model = models.BorrowerGroup
         fields = [
-            "id", "lender_id", "branch_id", "officer_id", "name", "meeting_day",
-            "meeting_frequency", "formed_on", "active", "created_at", "memberships",
+            "id", "lender_id", "branch_id", "officer_id", "group_number", "name", "group_type", "purpose",
+            "region", "district", "ward", "location", "meeting_location", "meeting_day", "meeting_frequency",
+            "meeting_time", "loan_limit", "formed_on", "status", "active", "created_at",
+            "memberships", "documents", "history", "meetings", "savings_total", "contributions_total",
         ]
+
+    def get_savings_total(self, obj):
+        from django.db.models import Sum
+
+        ids = [m.borrower_id for m in obj.memberships.all() if m.status == "active"]
+        total = models.SavingsAccount.objects.filter(borrower_id__in=ids).aggregate(t=Sum("balance"))["t"]
+        return float(total or 0)
+
+    def get_contributions_total(self, obj):
+        return float(sum(float(m.collection_amount) for m in obj.meetings.all()))
+
+
+GROUP_TYPES = ["business", "women", "youth", "agriculture", "savings", "general"]
+
+
+class GroupMemberInputSerializer(serializers.Serializer):
+    borrower_id = serializers.UUIDField()
+    role = serializers.ChoiceField(choices=models.GroupMembership.Role.choices, required=False, default="member")
 
 
 class BorrowerGroupWriteSerializer(serializers.Serializer):
     name = serializers.CharField()
     branch_id = serializers.UUIDField()
     officer_id = serializers.UUIDField()
+    group_type = serializers.ChoiceField(choices=GROUP_TYPES, required=False, default="general")
+    purpose = serializers.CharField(required=False, allow_blank=True, default="")
+    region = serializers.CharField(required=False, allow_blank=True, default="")
+    district = serializers.CharField(required=False, allow_blank=True, default="")
+    ward = serializers.CharField(required=False, allow_blank=True, default="")
+    location = serializers.CharField(required=False, allow_blank=True, default="")
+    meeting_location = serializers.CharField(required=False, allow_blank=True, default="")
     meeting_day = serializers.CharField(required=False, allow_blank=True, default="")
-    meeting_frequency = serializers.CharField(required=False, allow_blank=True, default="weekly")
+    meeting_frequency = serializers.ChoiceField(choices=["weekly", "biweekly", "monthly"], required=False, default="weekly")
+    meeting_time = serializers.CharField(required=False, allow_blank=True, default="")
+    loan_limit = serializers.FloatField(required=False, default=0, min_value=0)
     formed_on = serializers.DateField(required=False)
+    status = serializers.ChoiceField(choices=models.BorrowerGroup.Status.choices, required=False, default="active")
+    members = GroupMemberInputSerializer(many=True, required=False, default=list)
+    documents = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+
+
+class BorrowerGroupUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False)
+    branch_id = serializers.UUIDField(required=False)
+    officer_id = serializers.UUIDField(required=False)
+    group_type = serializers.ChoiceField(choices=GROUP_TYPES, required=False)
+    purpose = serializers.CharField(required=False, allow_blank=True)
+    region = serializers.CharField(required=False, allow_blank=True)
+    district = serializers.CharField(required=False, allow_blank=True)
+    ward = serializers.CharField(required=False, allow_blank=True)
+    location = serializers.CharField(required=False, allow_blank=True)
+    meeting_location = serializers.CharField(required=False, allow_blank=True)
+    meeting_day = serializers.CharField(required=False, allow_blank=True)
+    meeting_frequency = serializers.ChoiceField(choices=["weekly", "biweekly", "monthly"], required=False)
+    meeting_time = serializers.CharField(required=False, allow_blank=True)
+    loan_limit = serializers.FloatField(required=False, min_value=0)
+    formed_on = serializers.DateField(required=False)
+    status = serializers.ChoiceField(choices=models.BorrowerGroup.Status.choices, required=False)
+    active = serializers.BooleanField(required=False)
 
 
 class GroupMemberAddSerializer(serializers.Serializer):
     borrower_id = serializers.UUIDField()
     role = serializers.ChoiceField(choices=models.GroupMembership.Role.choices, required=False, default="member")
+
+
+class GroupMemberUpdateSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=models.GroupMembership.Role.choices, required=False)
+    status = serializers.ChoiceField(choices=models.GroupMembership.Status.choices, required=False)
+
+
+class GroupAttendanceInputSerializer(serializers.Serializer):
+    membership_id = serializers.UUIDField()
+    present = serializers.BooleanField(default=True)
+    contribution = serializers.FloatField(required=False, default=0, min_value=0)
+
+
+class GroupMeetingWriteSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    location = serializers.CharField(required=False, allow_blank=True, default="")
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    attendance = GroupAttendanceInputSerializer(many=True, required=False, default=list)
+
+
+class GroupDocumentWriteSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    type = serializers.CharField()
 
 
 class SavingsTransactionSerializer(serializers.ModelSerializer):

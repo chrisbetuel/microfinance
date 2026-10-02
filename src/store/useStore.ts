@@ -15,7 +15,9 @@ import type {
   CollectionActivity,
   CollectionActivityKind,
   CollectionOutcome,
+  GroupDetails,
   GroupMemberRole,
+  GroupMemberStatus,
   DisbursementChannel,
   Holiday,
   Lender,
@@ -181,15 +183,21 @@ interface StoreState {
   ) => Promise<void>
   sendLoanReminder: (loanId: string) => Promise<void>
 
-  createGroup: (input: {
-    name: string
-    branchId: string
-    officerId: string
-    meetingDay?: string
-    meetingFrequency?: string
-  }) => Promise<string>
+  createGroup: (
+    input: Partial<GroupDetails> & Pick<GroupDetails, 'name' | 'branchId' | 'officerId'> & {
+      members?: { borrowerId: string; role: GroupMemberRole }[]
+      documents?: { name: string; type: string }[]
+    },
+  ) => Promise<string>
+  updateGroup: (groupId: string, patch: Partial<GroupDetails>) => Promise<void>
   addGroupMember: (groupId: string, borrowerId: string, role: GroupMemberRole) => Promise<void>
+  updateGroupMember: (groupId: string, membershipId: string, patch: { role?: GroupMemberRole; status?: GroupMemberStatus }) => Promise<void>
   removeGroupMember: (groupId: string, membershipId: string) => Promise<void>
+  recordGroupMeeting: (
+    groupId: string,
+    input: { date: string; location?: string; notes?: string; attendance: { membershipId: string; present: boolean; contribution: number }[] },
+  ) => Promise<void>
+  addGroupDocument: (groupId: string, name: string, type: string) => Promise<void>
 }
 
 const EMPTY = {
@@ -668,8 +676,35 @@ export const useStore = create<StoreState>()((set, get) => {
     removeGroupMember: async (groupId, membershipId) => {
       const updated = await api.del<BorrowerGroup>(`/groups/${groupId}/members/${membershipId}`)
       set((s) => ({ groups: s.groups.map((g) => (g.id === groupId ? updated : g)) }))
-      toast.success('Member removed')
+      toast.success('Member marked as left')
       await refreshAudit()
+    },
+
+    updateGroup: async (groupId, patch) => {
+      const updated = await api.patch<BorrowerGroup>(`/groups/${groupId}`, patch)
+      set((s) => ({ groups: s.groups.map((g) => (g.id === groupId ? updated : g)) }))
+      toast.success('Group updated', updated.name)
+      await refreshAudit()
+    },
+
+    updateGroupMember: async (groupId, membershipId, patch) => {
+      const updated = await api.patch<BorrowerGroup>(`/groups/${groupId}/members/${membershipId}`, patch)
+      set((s) => ({ groups: s.groups.map((g) => (g.id === groupId ? updated : g)) }))
+      toast.success('Member updated')
+      await refreshAudit()
+    },
+
+    recordGroupMeeting: async (groupId, input) => {
+      const updated = await api.post<BorrowerGroup>(`/groups/${groupId}/meetings`, input)
+      set((s) => ({ groups: s.groups.map((g) => (g.id === groupId ? updated : g)) }))
+      toast.success('Meeting recorded')
+      await refreshAudit()
+    },
+
+    addGroupDocument: async (groupId, name, type) => {
+      const updated = await api.post<BorrowerGroup>(`/groups/${groupId}/documents`, { name, type })
+      set((s) => ({ groups: s.groups.map((g) => (g.id === groupId ? updated : g)) }))
+      toast.success('Document attached', name)
     },
   }
 })

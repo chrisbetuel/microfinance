@@ -21,6 +21,8 @@ import SecurityAudit from './pages/security/SecurityAudit'
 import Reports from './pages/reports/Reports'
 import Collections from './pages/collections/Collections'
 import Groups from './pages/groups/Groups'
+import GroupForm from './pages/groups/GroupForm'
+import GroupDetail from './pages/groups/GroupDetail'
 import Profile from './pages/Profile'
 import Messages from './pages/messages/Messages'
 import Payments from './pages/payments/Payments'
@@ -85,6 +87,9 @@ export default function App() {
             <Route path="/borrowers/:id/edit" element={<BorrowerForm />} />
             <Route path="/borrowers/:id" element={<BorrowerDetail />} />
             <Route path="/groups" element={<Groups />} />
+            <Route path="/groups/new" element={<GroupForm />} />
+            <Route path="/groups/:id" element={<GroupDetail />} />
+            <Route path="/groups/:id/edit" element={<GroupForm />} />
             <Route path="/products" element={<ProductsList />} />
             <Route path="/products/new" element={<ProductEditor />} />
             <Route path="/products/:id" element={<ProductEditor />} />

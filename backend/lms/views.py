@@ -24,6 +24,10 @@ from lms.models import (
     Branch,
     Collateral,
     CollectionActivity,
+    GroupAttendance,
+    GroupDocument,
+    GroupHistoryEvent,
+    GroupMeeting,
     GroupMembership,
     Guarantor,
     Holiday,
@@ -1101,7 +1105,46 @@ class LoanReminderView(APIView):
 # ---------------------------------------------------------------------- groups
 
 def group_qs(lender):
-    return BorrowerGroup.objects.filter(lender=lender).prefetch_related("memberships__borrower")
+    return BorrowerGroup.objects.filter(lender=lender).prefetch_related(
+        "memberships__borrower", "documents", "history", "meetings__attendance",
+    )
+
+
+def _group_event(group, label, detail="", by=""):
+    GroupHistoryEvent.objects.create(group=group, label=label, detail=detail, by=by)
+
+
+def _next_group_number(lender) -> str:
+    n = BorrowerGroup.objects.filter(lender=lender).count() + 1
+    while BorrowerGroup.objects.filter(lender=lender, group_number=f"GRP-{n:04d}").exists():
+        n += 1
+    return f"GRP-{n:04d}"
+
+
+def _add_member(group, borrower, role, by):
+    """Create (or re-activate) a membership with a stable membership number."""
+    existing = GroupMembership.objects.filter(group=group, borrower=borrower).first()
+    if existing:
+        if existing.status == GroupMembership.Status.ACTIVE:
+            raise Conflict(f"{borrower.full_name} is already in this group")
+        existing.status, existing.active, existing.left_on, existing.role = "active", True, None, role
+        existing.save(update_fields=["status", "active", "left_on", "role"])
+        _group_event(group, "Member rejoined", f"{borrower.full_name} ({existing.membership_number})", by)
+        return existing
+    seq = GroupMembership.objects.filter(group=group).count() + 1
+    m = GroupMembership.objects.create(
+        group=group, borrower=borrower, role=role,
+        membership_number=f"{group.group_number or 'GRP'}-{seq:02d}",
+    )
+    _group_event(group, "Member joined", f"{borrower.full_name} as {role} ({m.membership_number})", by)
+    return m
+
+
+def _one_leader_per_role(group, membership):
+    """A group has one chair, one secretary and one treasurer."""
+    if membership.role != GroupMembership.Role.MEMBER:
+        GroupMembership.objects.filter(group=group, role=membership.role).exclude(pk=membership.pk) \
+            .update(role=GroupMembership.Role.MEMBER)
 
 
 class GroupsView(APIView):
@@ -1115,16 +1158,27 @@ class GroupsView(APIView):
         data = validated(ser.BorrowerGroupWriteSerializer, request.data)
         ensure_branch(lender, data["branch_id"])
         ensure_staff_member(lender, data["officer_id"])
-        group = BorrowerGroup.objects.create(
-            lender=lender,
-            branch_id=data["branch_id"],
-            officer_id=data["officer_id"],
-            name=data["name"],
-            meeting_day=data.get("meeting_day", ""),
-            meeting_frequency=data.get("meeting_frequency") or "weekly",
-            formed_on=data.get("formed_on") or timezone.now().date(),
-        )
-        audit.record(request.user, "created", "group", group.id, f'Group "{group.name}" formed')
+        members = data.pop("members", [])
+        documents = data.pop("documents", [])
+        if not data.get("formed_on"):
+            data["formed_on"] = timezone.now().date()
+        with transaction.atomic():
+            group = BorrowerGroup.objects.create(
+                lender=lender, group_number=_next_group_number(lender),
+                active=data.get("status", "active") == "active", **data,
+            )
+            _group_event(group, "Group formed", f"{group.name} ({group.group_number})", request.user.name)
+            for item in members:
+                borrower = Borrower.objects.filter(pk=item["borrower_id"], lender=lender).first()
+                if borrower is None:
+                    raise NotFound("Borrower not found")
+                m = _add_member(group, borrower, item.get("role", "member"), request.user.name)
+                _one_leader_per_role(group, m)
+            for d in documents:
+                if d.get("name"):
+                    GroupDocument.objects.create(group=group, name=d["name"], type=d.get("type") or "Other")
+            audit.record(request.user, "created", "group", group.id,
+                         f'Group "{group.name}" ({group.group_number}) formed with {len(members)} member(s)')
         return Response(ser.BorrowerGroupSerializer(group_qs(lender).get(pk=group.pk)).data, status=status.HTTP_201_CREATED)
 
 
@@ -1138,14 +1192,30 @@ class GroupDetailView(APIView):
         return Response(ser.BorrowerGroupSerializer(group).data)
 
     def patch(self, request, group_id):
-        group = BorrowerGroup.objects.filter(pk=group_id, lender=request.user.lender).first()
+        lender = request.user.lender
+        group = BorrowerGroup.objects.filter(pk=group_id, lender=lender).first()
         if group is None:
             raise NotFound("Group not found")
-        if "active" in request.data:
-            group.active = bool(request.data["active"])
-            group.save(update_fields=["active"])
-        audit.record(request.user, "updated", "group", group.id, "Group updated")
-        return Response(ser.BorrowerGroupSerializer(group_qs(request.user.lender).get(pk=group.pk)).data)
+        data = validated(ser.BorrowerGroupUpdateSerializer, request.data)
+        if "active" in data and "status" not in data:
+            data["status"] = "active" if data.pop("active") else "suspended"
+        data.pop("active", None)
+        if "branch_id" in data:
+            ensure_branch(lender, data["branch_id"])
+        if "officer_id" in data:
+            ensure_staff_member(lender, data["officer_id"])
+        diff = audit.diff(group, data)
+        for field, value in data.items():
+            setattr(group, field, value)
+        group.active = group.status == BorrowerGroup.Status.ACTIVE
+        group.save()
+        if diff:
+            if "status" in diff:
+                _group_event(group, f"Status set to {group.status}", "", request.user.name)
+            else:
+                _group_event(group, "Details updated", ", ".join(k.replace("_", " ") for k in diff), request.user.name)
+            audit.record(request.user, "updated", "group", group.id, f"Group {group.name} updated", changes=diff)
+        return Response(ser.BorrowerGroupSerializer(group_qs(lender).get(pk=group.pk)).data)
 
 
 class GroupMembersView(APIView):
@@ -1160,25 +1230,101 @@ class GroupMembersView(APIView):
         borrower = Borrower.objects.filter(pk=data["borrower_id"], lender=lender).first()
         if borrower is None:
             raise NotFound("Borrower not found")
-        if GroupMembership.objects.filter(group=group, borrower=borrower).exists():
-            raise Conflict("That borrower is already in this group")
-        GroupMembership.objects.create(group=group, borrower=borrower, role=data["role"])
-        audit.record(request.user, "added", "group_member", group.id, f"{borrower.full_name} joined {group.name}")
+        with transaction.atomic():
+            m = _add_member(group, borrower, data["role"], request.user.name)
+            _one_leader_per_role(group, m)
+            audit.record(request.user, "added", "group_member", group.id, f"{borrower.full_name} joined {group.name}")
         return Response(ser.BorrowerGroupSerializer(group_qs(lender).get(pk=group.pk)).data, status=status.HTTP_201_CREATED)
 
 
 class GroupMemberDetailView(APIView):
     permission_classes = [IsAuthenticated, section_editor("borrowers")]
 
-    def delete(self, request, group_id, membership_id):
-        lender = request.user.lender
-        membership = GroupMembership.objects.filter(pk=membership_id, group__pk=group_id, group__lender=lender).first()
-        if membership is None:
+    def _get(self, request, group_id, membership_id):
+        m = GroupMembership.objects.filter(pk=membership_id, group__pk=group_id, group__lender=request.user.lender) \
+            .select_related("borrower", "group").first()
+        if m is None:
             raise NotFound("Membership not found")
-        name = membership.borrower.full_name
-        membership.delete()
-        audit.record(request.user, "removed", "group_member", group_id, f"{name} left the group")
-        return Response(ser.BorrowerGroupSerializer(group_qs(lender).get(pk=group_id)).data)
+        return m
+
+    def patch(self, request, group_id, membership_id):
+        m = self._get(request, group_id, membership_id)
+        data = validated(ser.GroupMemberUpdateSerializer, request.data)
+        with transaction.atomic():
+            if "role" in data and data["role"] != m.role:
+                m.role = data["role"]
+                _one_leader_per_role(m.group, m)
+                _group_event(m.group, "Role changed", f"{m.borrower.full_name} is now {m.role}", request.user.name)
+            if "status" in data and data["status"] != m.status:
+                m.status = data["status"]
+                m.left_on = timezone.now().date() if m.status == "left" else None
+                if m.status == "left":
+                    m.role = GroupMembership.Role.MEMBER
+                _group_event(m.group, f"Member {m.status}", m.borrower.full_name, request.user.name)
+            m.active = m.status == GroupMembership.Status.ACTIVE
+            m.save()
+            audit.record(request.user, "updated", "group_member", m.group_id, f"{m.borrower.full_name}: {m.role}, {m.status}")
+        return Response(ser.BorrowerGroupSerializer(group_qs(request.user.lender).get(pk=group_id)).data)
+
+    def delete(self, request, group_id, membership_id):
+        """Removing a member marks them as having left — their history stays."""
+        m = self._get(request, group_id, membership_id)
+        with transaction.atomic():
+            m.status, m.active, m.left_on, m.role = "left", False, timezone.now().date(), "member"
+            m.save(update_fields=["status", "active", "left_on", "role"])
+            _group_event(m.group, "Member left", m.borrower.full_name, request.user.name)
+            audit.record(request.user, "removed", "group_member", group_id, f"{m.borrower.full_name} left the group")
+        return Response(ser.BorrowerGroupSerializer(group_qs(request.user.lender).get(pk=group_id)).data)
+
+
+class GroupMeetingsView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def post(self, request, group_id):
+        lender = request.user.lender
+        group = BorrowerGroup.objects.filter(pk=group_id, lender=lender).first()
+        if group is None:
+            raise NotFound("Group not found")
+        data = validated(ser.GroupMeetingWriteSerializer, request.data)
+        member_ids = set(GroupMembership.objects.filter(group=group).values_list("id", flat=True))
+        with transaction.atomic():
+            meeting = GroupMeeting.objects.create(
+                group=group, date=data["date"], location=data.get("location") or group.meeting_location,
+                notes=data.get("notes") or "", recorded_by=request.user.name,
+            )
+            total = 0.0
+            for row in data.get("attendance", []):
+                if row["membership_id"] not in member_ids:
+                    raise UnprocessableEntity("Attendance lists someone who is not a member of this group")
+                contribution = float(row.get("contribution") or 0) if row.get("present", True) else 0.0
+                total += contribution
+                GroupAttendance.objects.create(
+                    meeting=meeting, membership_id=row["membership_id"],
+                    present=row.get("present", True), contribution=contribution,
+                )
+            meeting.collection_amount = total
+            meeting.save(update_fields=["collection_amount"])
+            present = sum(1 for r in data.get("attendance", []) if r.get("present", True))
+            _group_event(group, "Meeting held",
+                         f"{meeting.date:%d %b %Y}: {present}/{len(data.get('attendance', []))} present, collected {total:,.0f}",
+                         request.user.name)
+            audit.record(request.user, "recorded", "group_meeting", meeting.id,
+                         f"{group.name} meeting on {meeting.date}: collected {total:,.0f}")
+        return Response(ser.BorrowerGroupSerializer(group_qs(lender).get(pk=group.pk)).data, status=status.HTTP_201_CREATED)
+
+
+class GroupDocumentsView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def post(self, request, group_id):
+        group = BorrowerGroup.objects.filter(pk=group_id, lender=request.user.lender).first()
+        if group is None:
+            raise NotFound("Group not found")
+        data = validated(ser.GroupDocumentWriteSerializer, request.data)
+        GroupDocument.objects.create(group=group, name=data["name"], type=data["type"])
+        _group_event(group, "Document added", f"{data['name']} ({data['type']})", request.user.name)
+        return Response(ser.BorrowerGroupSerializer(group_qs(request.user.lender).get(pk=group.pk)).data,
+                        status=status.HTTP_201_CREATED)
 
 
 # --------------------------------------------------------------------- savings

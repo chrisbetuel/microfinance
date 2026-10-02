@@ -23,6 +23,9 @@ from lms.models import (
     Branch,
     Collateral,
     CollectionActivity,
+    GroupAttendance,
+    GroupHistoryEvent,
+    GroupMeeting,
     GroupMembership,
     Lender,
     Loan,
@@ -204,19 +207,44 @@ class Command(BaseCommand):
             borrowers[-1].history.create(label="File opened", detail=f"Registered at {branch.name} branch")
             audit_record(officer, "created", "borrower", borrowers[-1].id, f'Borrower "{name}" registered')
 
-        # A solidarity group at the Kariakoo branch
-        kariakoo = branches[1]
-        group_officer = next(o for o in officers if o.branch_id == kariakoo.id)
-        group_members = [b for b in borrowers if b.branch_id == kariakoo.id and not b.blacklisted][:4]
+        # A solidarity group at the Mwanza City branch
+        group_branch = branches[1]
+        group_officer = next(o for o in officers if o.branch_id == group_branch.id)
+        group_members = [b for b in borrowers if b.branch_id == group_branch.id and not b.blacklisted][:4]
+        grp = None
         if len(group_members) >= 3:
+            formed = (timezone.now() - timedelta(days=120)).date()
             grp = BorrowerGroup.objects.create(
-                lender=lender, branch=kariakoo, officer=group_officer, name="Umoja Solidarity Group",
-                meeting_day="Wednesday", meeting_frequency="weekly",
-                formed_on=(timezone.now() - timedelta(days=120)).date(),
+                lender=lender, branch=group_branch, officer=group_officer, name="Umoja Solidarity Group",
+                group_number="GRP-0001", group_type="women",
+                purpose="Members run small retail stalls at Mwanza central market and borrow to restock together.",
+                region="Mwanza", district="Nyamagana", ward="Mirongo", location="Mwanza central market",
+                meeting_location="St. Joseph community hall", meeting_day="Wednesday", meeting_frequency="weekly",
+                meeting_time="10:00", loan_limit=8_000_000, formed_on=formed, status="active",
             )
+            GroupHistoryEvent.objects.create(group=grp, label="Group formed", detail="Umoja Solidarity Group (GRP-0001)",
+                                             by=group_officer.name, date=timezone.now() - timedelta(days=120))
+            memberships = []
             for idx, member in enumerate(group_members):
                 role = ["chair", "secretary", "treasurer", "member"][min(idx, 3)]
-                GroupMembership.objects.create(group=grp, borrower=member, role=role)
+                memberships.append(GroupMembership.objects.create(
+                    group=grp, borrower=member, role=role, membership_number=f"GRP-0001-{idx + 1:02d}", joined_on=formed,
+                ))
+            for weeks_ago in (3, 2, 1):
+                meeting = GroupMeeting.objects.create(
+                    group=grp, date=(timezone.now() - timedelta(weeks=weeks_ago)).date(), location=grp.meeting_location,
+                    notes=rng.choice(["Reviewed repayments; all on track.", "Discussed stock prices and a joint purchase.",
+                                      "One member late — group agreed to follow up."]),
+                    recorded_by=group_officer.name,
+                )
+                total = 0
+                for m in memberships:
+                    present = rng.random() > 0.15
+                    amount = rng.choice([5_000, 10_000, 10_000, 20_000]) if present else 0
+                    total += amount
+                    GroupAttendance.objects.create(meeting=meeting, membership=m, present=present, contribution=amount)
+                meeting.collection_amount = total
+                meeting.save(update_fields=["collection_amount"])
             audit_record(group_officer, "created", "group", grp.id, 'Group "Umoja Solidarity Group" formed')
 
         now = timezone.now()
@@ -310,6 +338,11 @@ class Command(BaseCommand):
                 audit_record(cashier, "recorded", "repayment", rp.id,
                              f"{float(rp.amount):,.0f} received, receipt {rp.receipt_number}")
                 notify.receipt(lender, borrower, rp)
+
+        if grp is not None:  # members' loans were taken as group loans
+            member_ids = [m.borrower_id for m in grp.memberships.all()]
+            Application.objects.filter(lender=lender, borrower_id__in=member_ids).update(group=grp)
+            Loan.objects.filter(lender=lender, borrower_id__in=member_ids).update(group=grp)
 
         result = aging.age_all(lender=lender)
         in_arrears = sum(1 for r in result if r.days_in_arrears > 0)

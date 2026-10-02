@@ -50,7 +50,8 @@ export default function Messages() {
   const sendBulkSms = useStore((s) => s.sendBulkSms)
   const canEdit = useCanEdit()
 
-  const [mode, setMode] = useState<'single' | 'bulk'>('single')
+  const linkedGroup = new URLSearchParams(window.location.search).get('group')
+  const [mode, setMode] = useState<'single' | 'bulk'>(linkedGroup ? 'bulk' : 'single')
   const [message, setMessage] = useState(TEMPLATES[0].body)
   const [busy, setBusy] = useState(false)
 
@@ -60,9 +61,9 @@ export default function Messages() {
   const [search, setSearch] = useState('')
 
   // bulk
-  const [audience, setAudience] = useState<BulkSmsInput['audience']>('due_soon')
+  const [audience, setAudience] = useState<BulkSmsInput['audience']>(linkedGroup ? 'group' : 'due_soon')
   const [branchId, setBranchId] = useState('')
-  const [groupId, setGroupId] = useState(groups[0]?.id ?? '')
+  const [groupId, setGroupId] = useState(linkedGroup ?? groups[0]?.id ?? '')
   const [dueWithin, setDueWithin] = useState(3)
   const [picked, setPicked] = useState<string[]>([])
   const [preview, setPreview] = useState<Preview | null>(null)

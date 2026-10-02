@@ -350,26 +350,65 @@ export interface Loan {
 
 export type GroupMemberRole = 'member' | 'chair' | 'secretary' | 'treasurer'
 
+export type GroupMemberStatus = 'active' | 'inactive' | 'suspended' | 'left'
+export type GroupStatus = 'pending' | 'active' | 'suspended' | 'closed'
+export type GroupType = 'business' | 'women' | 'youth' | 'agriculture' | 'savings' | 'general'
+
 export interface GroupMembership {
   id: string
   borrowerId: string
   borrowerName: string
+  borrowerPhone: string
+  customerNumber: string
+  membershipNumber: string
   role: GroupMemberRole
   joinedOn: string
+  status: GroupMemberStatus
+  leftOn: string | null
   active: boolean
 }
 
-export interface BorrowerGroup {
+export interface GroupMeeting {
   id: string
+  date: string
+  location: string
+  notes: string
+  collectionAmount: number
+  recordedBy: string
+  createdAt: string
+  attendance: { id: string; membershipId: string; present: boolean; contribution: number }[]
+}
+
+export interface GroupDetails {
+  name: string
   branchId: string
   officerId: string
-  name: string
+  groupType: GroupType
+  purpose: string
+  region: string
+  district: string
+  ward: string
+  location: string
+  meetingLocation: string
   meetingDay: string
-  meetingFrequency: string
+  meetingFrequency: 'weekly' | 'biweekly' | 'monthly'
+  meetingTime: string
+  loanLimit: number
   formedOn: string
+  status: GroupStatus
+}
+
+export interface BorrowerGroup extends GroupDetails {
+  id: string
+  groupNumber: string
   active: boolean
   createdAt: string
   memberships: GroupMembership[]
+  documents: { id: string; name: string; type: string; uploadedAt: string }[]
+  history: { id: string; date: string; label: string; detail: string; by: string }[]
+  meetings: GroupMeeting[]
+  savingsTotal: number
+  contributionsTotal: number
 }
 
 export type SavingsTransactionKind = 'deposit' | 'withdrawal' | 'loan_deduction' | 'release'
