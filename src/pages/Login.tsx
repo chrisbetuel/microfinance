@@ -1,24 +1,32 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Lock, Mail, Send, Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import { takeLogoutReason } from '../lib/session'
 import { useStore } from '../store/useStore'
 import { api, ApiError, setToken } from '../lib/api'
-import background from '../assets/login/login-bg.svg'
 
-const label = 'mb-1.5 block text-[13px] font-semibold text-slate-700'
-const inputBase =
-  'w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-500/25'
-const plainInput = inputBase.replace('pl-10', 'pl-3.5')
-const iconCls = 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400'
+// This screen is always dark (it doesn't follow the app theme), so it uses
+// literal colours — the dark-mode palette remap never touches them.
+const input =
+  'w-full rounded-full border border-[rgba(255,255,255,0.28)] bg-[rgba(255,255,255,0.04)] px-5 py-3 text-sm text-[#ffffff] outline-none transition placeholder:text-[rgba(255,255,255,0.75)] focus:border-[#3b82f6] focus:bg-[rgba(255,255,255,0.07)] focus:ring-2 focus:ring-[rgba(59,130,246,0.35)]'
+
+const REMEMBER_KEY = 'lms-remember-email'
+
+function rememberedEmail(): string {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
 
 export default function Login() {
   const navigate = useNavigate()
   const login = useStore((s) => s.login)
   const bootstrap = useStore((s) => s.bootstrap)
 
-  const [notice] = useState(() => {
+  const [notice, setNotice] = useState<string | null>(() => {
     const reason = takeLogoutReason()
     if (reason === 'idle') return 'You were signed out after a period of inactivity.'
     if (reason === 'token') return 'Your session ended. Please sign in again.'
@@ -26,7 +34,8 @@ export default function Login() {
   })
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(rememberedEmail)
+  const [remember, setRemember] = useState(() => rememberedEmail() !== '')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [lenderName, setLenderName] = useState('')
@@ -41,6 +50,12 @@ export default function Login() {
     try {
       if (mode === 'login') {
         await login(email, password)
+        try {
+          if (remember) localStorage.setItem(REMEMBER_KEY, email)
+          else localStorage.removeItem(REMEMBER_KEY)
+        } catch {
+          /* storage unavailable */
+        }
       } else {
         const { accessToken } = await api.post<{ accessToken: string }>('/auth/register', {
           lenderName,
@@ -59,144 +74,159 @@ export default function Login() {
     }
   }
 
+  function switchMode() {
+    setMode(mode === 'login' ? 'register' : 'login')
+    setError(null)
+    setNotice(null)
+  }
+
   return (
-    <div className="relative min-h-screen overflow-hidden">
-      <img src={background} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover object-center" />
-      {/* literal rgba so the theme's palette remap never touches the scrim */}
-      <div className="absolute inset-0 bg-[rgba(3,7,18,0.55)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_45%,rgba(3,7,18,0.35),transparent_75%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(3,7,18,0.35),transparent_50%)]" />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020308] px-5 py-12">
+      {/* glowing arcs */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-[42%] top-[-28vmin] h-[96vmin] w-[96vmin] rounded-full border-[7px] border-[#1d7bff]"
+        style={{
+          boxShadow:
+            '0 0 40px rgba(29,123,255,0.65), inset 0 0 60px rgba(29,123,255,0.35), inset 0 0 220px rgba(20,60,200,0.35)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute bottom-[-40vmin] right-[44%] h-[96vmin] w-[96vmin] rounded-full border-[7px] border-[#1d7bff]"
+        style={{
+          boxShadow:
+            '0 0 40px rgba(29,123,255,0.65), inset 0 0 60px rgba(29,123,255,0.35), inset 0 0 220px rgba(20,60,200,0.35)',
+        }}
+      />
+      {/* diagonal light beam */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            'linear-gradient(135deg, transparent 38%, rgba(70,90,255,0.10) 46%, rgba(120,140,255,0.22) 50%, rgba(70,90,255,0.10) 54%, transparent 62%)',
+        }}
+      />
+      {/* faint grid */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-40"
+        style={{
+          backgroundImage:
+            'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+          backgroundSize: '44px 44px',
+        }}
+      />
 
-      <div className="relative z-10 flex min-h-screen flex-col items-center px-6 py-8 sm:px-10 lg:py-12">
-        {/* header */}
-        <header className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-600 text-white shadow-lg">
-            <Send size={17} strokeWidth={2.25} />
-          </span>
-          <span className="text-lg font-extrabold tracking-tight text-white">
-            Sele<span className="text-accent-400">MF</span>
-          </span>
-        </header>
+      {/* glass card */}
+      <div className="relative w-full max-w-[400px] rounded-2xl border border-[rgba(255,255,255,0.16)] bg-[rgba(10,16,48,0.35)] px-8 py-9 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl sm:px-10">
+        <h1 className="text-center text-3xl font-bold tracking-tight text-[#ffffff]">
+          {mode === 'login' ? 'Login' : 'Register'}
+        </h1>
 
-        {/* body — the sign-in card, centred */}
-        <div className="flex flex-1 items-center py-10">
-          <div className="w-full max-w-[420px]">
-            <div className="rounded-2xl bg-white p-7 text-left shadow-[0_30px_80px_-24px_rgba(2,6,23,0.7)] ring-1 ring-black/5 sm:p-8">
-              <h2 className="text-xl font-bold tracking-tight text-slate-900">
-                {mode === 'login' ? 'Welcome back' : 'Create your workspace'}
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                {mode === 'login'
-                  ? 'Sign in to your microfinance workspace.'
-                  : 'A private, branded workspace for your institution.'}
-              </p>
+        {notice && mode === 'login' && (
+          <p className="mt-5 rounded-xl border border-[rgba(251,191,36,0.35)] bg-[rgba(251,191,36,0.10)] px-4 py-2.5 text-center text-xs text-[#fde68a]">
+            {notice}
+          </p>
+        )}
 
-              {notice && mode === 'login' && (
-                <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
-                  {notice}
-                </p>
-              )}
+        <form onSubmit={submit} className="mt-7 space-y-4">
+          {mode === 'register' && (
+            <>
+              <input
+                required
+                placeholder="Organisation name"
+                className={input}
+                value={lenderName}
+                onChange={(e) => setLenderName(e.target.value)}
+              />
+              <input
+                required
+                placeholder="Your full name"
+                className={input}
+                value={adminName}
+                onChange={(e) => setAdminName(e.target.value)}
+              />
+            </>
+          )}
 
-              <form onSubmit={submit} className="mt-6 space-y-4">
-                {mode === 'register' && (
-                  <>
-                    <div>
-                      <label className={label}>Lender / organisation name</label>
-                      <input
-                        required
-                        className={plainInput}
-                        value={lenderName}
-                        onChange={(e) => setLenderName(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className={label}>Your full name</label>
-                      <input
-                        required
-                        className={plainInput}
-                        value={adminName}
-                        onChange={(e) => setAdminName(e.target.value)}
-                      />
-                    </div>
-                  </>
-                )}
+          <input
+            required
+            type="email"
+            autoComplete="username"
+            placeholder="Email"
+            aria-label="Email"
+            className={input}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
 
-                <div>
-                  <label className={label}>Email address</label>
-                  <div className="relative">
-                    <Mail size={16} className={iconCls} />
-                    <input
-                      required
-                      type="email"
-                      autoComplete="username"
-                      placeholder="you@lender.co"
-                      className={inputBase}
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className={label}>Password</label>
-                  <div className="relative">
-                    <Lock size={16} className={iconCls} />
-                    <input
-                      required
-                      type={showPw ? 'text' : 'password'}
-                      autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                      placeholder="••••••••"
-                      className={`${inputBase} pr-10`}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPw((v) => !v)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                      aria-label={showPw ? 'Hide password' : 'Show password'}
-                      tabIndex={-1}
-                    >
-                      {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                </div>
-
-                {error && (
-                  <p className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">{error}</p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 active:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {busy && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
-                  {busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create workspace'}
-                </button>
-              </form>
-
-              <div className="mt-6 border-t border-slate-100 pt-4 text-center text-sm text-slate-500">
-                {mode === 'login' ? 'New to the platform? ' : 'Already have an account? '}
-                <button
-                  type="button"
-                  className="font-semibold text-brand-600 hover:text-brand-700 hover:underline"
-                  onClick={() => {
-                    setMode(mode === 'login' ? 'register' : 'login')
-                    setError(null)
-                  }}
-                >
-                  {mode === 'login' ? 'Create a workspace' : 'Sign in'}
-                </button>
-              </div>
-            </div>
+          <div className="relative">
+            <input
+              required
+              type={showPw ? 'text' : 'password'}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              placeholder="Password"
+              aria-label="Password"
+              className={`${input} pr-12`}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => setShowPw((v) => !v)}
+              aria-label={showPw ? 'Hide password' : 'Show password'}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-[rgba(255,255,255,0.6)] hover:text-[#ffffff]"
+            >
+              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
           </div>
-        </div>
 
-        {/* footer */}
-        <footer className="text-center text-xs text-white/50">
-          © {new Date().getFullYear()} Sele Microfinance — Loan Management System
-        </footer>
+          {mode === 'login' && (
+            <div className="flex items-center justify-between px-1 text-xs text-[rgba(255,255,255,0.85)]">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-[#1d7bff]"
+                />
+                Remember me
+              </label>
+              <button
+                type="button"
+                className="hover:text-[#ffffff] hover:underline"
+                onClick={() => setNotice('Ask your lender administrator to reset your password.')}
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <p className="rounded-xl border border-[rgba(248,113,113,0.4)] bg-[rgba(248,113,113,0.12)] px-4 py-2.5 text-center text-sm text-[#fecaca]">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-full bg-[#ffffff] py-3 text-sm font-semibold text-[#0b1020] transition hover:bg-[#e8edff] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy && <span className="h-4 w-4 animate-spin rounded-full border-2 border-[rgba(11,16,32,0.25)] border-t-[#0b1020]" />}
+            {busy ? 'Please wait…' : mode === 'login' ? 'Login' : 'Create workspace'}
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-xs text-[rgba(255,255,255,0.8)]">
+          {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+          <button type="button" onClick={switchMode} className="font-semibold text-[#ffffff] hover:underline">
+            {mode === 'login' ? 'Register' : 'Login'}
+          </button>
+        </p>
       </div>
     </div>
   )
