@@ -32,6 +32,7 @@ const kindIcon: Record<CollectionActivityKind, typeof Phone> = {
   visit: MapPin,
   message: MessageSquare,
   note: StickyNote,
+  escalation: AlertTriangle,
   promise: HandCoins,
 }
 
@@ -348,7 +349,7 @@ function LoanCollectionPanel({
           </div>
 
           <div className="flex flex-wrap gap-1.5">
-            {(['call', 'visit', 'message', 'note', 'promise'] as CollectionActivityKind[]).map((k) => {
+            {(['call', 'visit', 'message', 'note', 'promise', 'escalation'] as CollectionActivityKind[]).map((k) => {
               const Icon = kindIcon[k]
               return (
                 <button

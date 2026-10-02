@@ -88,6 +88,7 @@ export function generateSchedule(
       paidAmount: 0,
       balanceAfter: round2(balance),
       status: 'upcoming',
+      wasLate: false,
     })
   }
 

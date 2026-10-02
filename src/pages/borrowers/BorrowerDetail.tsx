@@ -14,6 +14,7 @@ import { useCanEdit } from '../../lib/useCanEdit'
 import { isSupervisor } from '../../lib/permissions'
 import { BorrowerSavings } from './BorrowerSavings'
 import { StatusBadge } from './StatusBadge'
+import { AlsoGuarantees, CollateralTab, GuaranteesGiven, LoanHistory, TransactionLedger, loanStatusLabel } from './BorrowerExtras'
 import type { ApplicationStatus, BorrowerStatus, DisbursementChannel, Loan, Repayment } from '../../types'
 
 const tabs = [
@@ -22,6 +23,8 @@ const tabs = [
   { id: 'loans', label: 'Loans & Disbursements' },
   { id: 'savings', label: 'Savings' },
   { id: 'guarantors', label: 'Guarantors' },
+  { id: 'collateral', label: 'Collateral' },
+  { id: 'transactions', label: 'Transactions' },
   { id: 'documents', label: 'Documents' },
   { id: 'history', label: 'History' },
 ]
@@ -56,6 +59,7 @@ export default function BorrowerDetail() {
   )
   const products = useStore((s) => s.products)
   const setBorrowerStatus = useStore((s) => s.setBorrowerStatus)
+  const verifyBorrower = useStore((s) => s.verifyBorrower)
   const allRepayments = useStore((s) => s.repayments)
   const navigate = useNavigate()
   const uploadBorrowerDocument = useStore((s) => s.uploadBorrowerDocument)
@@ -67,6 +71,8 @@ export default function BorrowerDetail() {
   const [tab, setTab] = useState('profile')
   const [statusTo, setStatusTo] = useState<BorrowerStatus | null>(null)
   const [reason, setReason] = useState('')
+  const [verifyOpen, setVerifyOpen] = useState(false)
+  const [checks, setChecks] = useState({ nida: false, phone: false, docs: false })
   const [settleFor, setSettleFor] = useState<Loan | null>(null)
   const [settleChannel, setSettleChannel] = useState<Repayment['channel']>('mobile_money')
   const [writeOffFor, setWriteOffFor] = useState<Loan | null>(null)
@@ -99,6 +105,18 @@ export default function BorrowerDetail() {
               <Button variant="secondary" icon={<Pencil size={15} />} onClick={() => navigate(`/borrowers/${borrower.id}/edit`)}>
                 Edit profile
               </Button>
+              {borrower.verified ? (
+                <Button variant="secondary" onClick={() => void verifyBorrower(borrower.id, false, false)}>Remove verification</Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    setChecks({ nida: false, phone: false, docs: false })
+                    setVerifyOpen(true)
+                  }}
+                >
+                  Verify profile
+                </Button>
+              )}
               <select
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
                 value={borrower.status}
@@ -126,6 +144,14 @@ export default function BorrowerDetail() {
         </span>
         <span className="font-mono text-sm text-slate-500">{borrower.customerNumber}</span>
         <StatusBadge status={borrower.status} />
+        {borrower.verified ? (
+          <Badge tone="green">
+            ✓ Verified by {borrower.verifiedBy}{borrower.verifiedAt ? ` · ${formatDate(borrower.verifiedAt)}` : ''}
+          </Badge>
+        ) : (
+          <Badge tone="amber">Unverified</Badge>
+        )}
+        {borrower.phoneVerified && <Badge tone="slate">Phone verified</Badge>}
         <Badge tone="slate">Total exposure: {formatMoney(totalExposure)}</Badge>
         <Badge tone="slate" className="capitalize">
           {borrower.type}
@@ -193,6 +219,7 @@ export default function BorrowerDetail() {
               <ProfileCard title="Financial information" items={[
                 ['Monthly income', formatMoney(borrower.monthlyIncome)],
                 ['Monthly expenses', formatMoney(borrower.monthlyExpenses)],
+                ['Dependents', borrower.dependents?.toString() ?? ''],
                 ['Existing loan payments', formatMoney(borrower.existingLoanPayments)],
                 ['Disposable income', formatMoney(borrower.monthlyIncome - borrower.monthlyExpenses - borrower.existingLoanPayments)],
                 ['Other income', borrower.otherIncomeSources],
@@ -200,6 +227,7 @@ export default function BorrowerDetail() {
                 ['Bank', [borrower.bankName, borrower.bankAccount].filter(Boolean).join(' · ')],
                 ['Mobile money', [borrower.mobileMoneyProvider, borrower.mobileMoneyNumber].filter(Boolean).join(' · ')],
               ]} />
+              <GuaranteesGiven borrower={borrower} />
               <ProfileCard title="Emergency contact" items={[
                 ['Name', borrower.emergencyName || borrower.nextOfKin],
                 ['Relationship', borrower.emergencyRelationship],
@@ -207,6 +235,7 @@ export default function BorrowerDetail() {
                 ['Address', borrower.emergencyAddress],
               ]} />
             </div>
+            <LoanHistory loans={loans} />
           </div>
         )}
 
@@ -263,7 +292,7 @@ export default function BorrowerDetail() {
                         </Badge>
                       )}
                       <Badge tone={loan.status === 'active' ? 'green' : loan.status === 'closed' ? 'slate' : loan.status === 'written_off' ? 'red' : 'amber'}>
-                        {loan.status.replace('_', ' ')}
+                        {loanStatusLabel[loan.status]}
                       </Badge>
                       <span className="text-sm font-medium text-slate-700">{formatMoney(loan.outstandingBalance)} outstanding</span>
                     </div>
@@ -344,6 +373,7 @@ export default function BorrowerDetail() {
                     <p className="mt-0.5 text-xs text-slate-500">
                       Income {formatMoney(g.monthlyIncome)} · Guarantees <b>{formatMoney(g.guaranteeAmount)}</b>
                     </p>
+                    <AlsoGuarantees nationalId={g.nationalId} selfId={borrower.id} />
                   </div>
                   <div className="flex gap-2">
                     <Badge tone={g.status === 'approved' ? 'green' : g.status === 'rejected' ? 'red' : 'amber'} className="capitalize">
@@ -383,6 +413,10 @@ export default function BorrowerDetail() {
 
         {tab === 'savings' && <BorrowerSavings borrowerId={borrower.id} canEdit={canEdit} />}
 
+        {tab === 'collateral' && <CollateralTab borrower={borrower} loans={loans} canEdit={canEdit} />}
+
+        {tab === 'transactions' && <TransactionLedger loans={loans} />}
+
         {tab === 'history' && (
           <Card>
             <CardHeader title="Full history" subtitle="Every stage on this file" />
@@ -399,6 +433,37 @@ export default function BorrowerDetail() {
           </Card>
         )}
       </div>
+
+      <Modal open={verifyOpen} onClose={() => setVerifyOpen(false)} title="Verify borrower profile">
+        <div className="space-y-3 text-sm">
+          <p className="text-slate-600">Confirm each check before marking {borrower.fullName} as verified. Your name and the time are recorded.</p>
+          {[
+            ['nida', `NIDA number ${borrower.nationalId} matches the ID card`],
+            ['phone', `Phone ${borrower.phone} answered / confirmed`],
+            ['docs', `Supporting documents reviewed (${borrower.documents.length} on file)`],
+          ].map(([k, label]) => (
+            <label key={k} className="flex items-start gap-2.5 rounded-lg border border-slate-200 px-3 py-2.5">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={checks[k as keyof typeof checks]}
+                onChange={(e) => setChecks({ ...checks, [k]: e.target.checked })}
+              />
+              {label}
+            </label>
+          ))}
+          <Button
+            className="w-full"
+            disabled={!checks.nida || !checks.docs}
+            onClick={async () => {
+              await verifyBorrower(borrower.id, true, checks.phone)
+              setVerifyOpen(false)
+            }}
+          >
+            Mark as verified
+          </Button>
+        </div>
+      </Modal>
 
       <Modal open={statusTo !== null} onClose={() => setStatusTo(null)} title={`Set status to ${statusTo ?? ''}`}>
         <form

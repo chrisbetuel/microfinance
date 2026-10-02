@@ -139,6 +139,7 @@ export interface BorrowerProfile {
   businessLocation: string
   yearsTrading?: number | null
   // 4. financial
+  dependents: number | null
   monthlyIncome: number
   monthlyExpenses: number
   otherIncomeSources: string
@@ -160,6 +161,10 @@ export interface Borrower extends BorrowerProfile {
   id: string
   customerNumber: string
   status: BorrowerStatus
+  verified: boolean
+  phoneVerified: boolean
+  verifiedBy: string
+  verifiedAt: string | null
   guarantors: Guarantor[]
   documents: BorrowerDocument[]
   blacklisted: boolean
@@ -257,6 +262,42 @@ export interface Application {
   createdBy: string
   createdAt: string
   declineReason: string | null
+  risk: ApplicationRisk
+  needsReview: boolean
+}
+
+export interface ApplicationRisk {
+  monthlyIncome?: number
+  monthlyExpenses?: number
+  existingRepayments?: number
+  newInstalment?: number
+  disposableAfter?: number
+  debtToIncome?: number
+  loanToIncome?: number | null
+  existingDebt?: number
+  previousLoans?: number
+  completedLoans?: number
+  activeLoans?: number
+  lateInstalments?: number
+  defaults?: number
+  flags?: string[]
+}
+
+export type CollateralStatus = 'pledged' | 'active' | 'released' | 'seized'
+
+export interface Collateral {
+  id: string
+  borrowerId: string
+  loanId: string | null
+  assetType: string
+  description: string
+  estimatedValue: number
+  ownerName: string
+  ownershipDocument: string
+  valuationDate: string | null
+  status: CollateralStatus
+  createdBy: string
+  createdAt: string
 }
 
 export type LoanStatus = 'pending_disbursement' | 'active' | 'closed' | 'written_off'
@@ -272,6 +313,7 @@ export interface ScheduleInstalment {
   paidAmount: number
   balanceAfter: number
   status: 'upcoming' | 'due' | 'overdue' | 'paid' | 'partial'
+  wasLate: boolean
 }
 
 export type DisbursementChannel = 'mobile_money' | 'bank_transfer' | 'supplier' | 'cash'
@@ -386,6 +428,7 @@ export interface AuditLogEntry {
   entity: string
   entityId: string
   details: string
+  changes: Record<string, { before: unknown; after: unknown }>
 }
 
 export interface Notification {
@@ -401,7 +444,7 @@ export interface Notification {
   sentAt: string | null
 }
 
-export type CollectionActivityKind = 'call' | 'visit' | 'message' | 'note' | 'promise'
+export type CollectionActivityKind = 'call' | 'visit' | 'message' | 'note' | 'promise' | 'escalation'
 export type CollectionOutcome = '' | 'reached' | 'no_answer' | 'promised' | 'disputed' | 'paid' | 'other'
 
 export interface CollectionActivity {

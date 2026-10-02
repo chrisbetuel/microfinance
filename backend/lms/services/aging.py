@@ -46,6 +46,7 @@ def age_loan(loan: Loan, *, as_of=None) -> LoanAging:
             inst.penalty_due = penalty
             inst.total_due = round2(base_due + penalty)
             inst.status = InstalmentStatus.PARTIAL if paid > 0 else InstalmentStatus.OVERDUE
+            inst.was_late = True
             max_days = max(max_days, days_late)
             arrears += max(float(inst.total_due) - paid, 0.0)
         elif inst.due_date == today:
@@ -55,7 +56,7 @@ def age_loan(loan: Loan, *, as_of=None) -> LoanAging:
 
         outstanding += max(float(inst.total_due) - paid, 0.0)
 
-    ScheduleInstalment.objects.bulk_update(schedule, ["status", "penalty_due", "total_due"])
+    ScheduleInstalment.objects.bulk_update(schedule, ["status", "penalty_due", "total_due", "was_late"])
 
     now = timezone.now()
     loan.days_in_arrears = max_days

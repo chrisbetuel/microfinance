@@ -52,3 +52,32 @@ export function arrearsAgingBuckets(loans: Loan[]): Record<string, { count: numb
   }
   return buckets
 }
+
+/** Share of everything that has fallen due so far that has actually been paid. */
+export function collectionRate(loans: Loan[], ref: Date = new Date()): number | null {
+  let due = 0
+  let paid = 0
+  for (const l of loans) {
+    if (l.status === 'pending_disbursement') continue
+    for (const i of l.schedule) {
+      if (new Date(i.dueDate) > ref) continue
+      due += i.totalDue
+      paid += Math.min(i.paidAmount, i.totalDue)
+    }
+  }
+  return due > 0 ? (paid / due) * 100 : null
+}
+
+export function portfolioSummary(loans: Loan[], repayments: Repayment[]) {
+  const active = loans.filter((l) => l.status === 'active')
+  const overdue = active.filter((l) => daysLate(l) > 0)
+  return {
+    activeLoans: active.length,
+    overdueLoans: overdue.length,
+    overdueAmount: overdue.reduce((s, l) => s + (l.arrearsAmount || 0), 0),
+    defaulted: loans.filter((l) => l.status === 'written_off').length,
+    completed: loans.filter((l) => l.status === 'closed').length,
+    totalDisbursed: loans.filter((l) => l.disbursement).reduce((s, l) => s + l.principal, 0),
+    totalCollected: repayments.filter((r) => !r.reversed).reduce((s, r) => s + r.amount, 0),
+  }
+}

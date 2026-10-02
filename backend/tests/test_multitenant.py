@@ -26,6 +26,7 @@ def build_tenant(client, tag: str) -> dict:
         "/branches", {"name": f"Br{tag}", "code": tag[:4], "location": "X", "openedOn": "2022-01-01"}
     ).json()
     manager = make_staff(admin, client, role="branch_manager", branch_id=branch["id"], email=f"mgr.{tag}@example.co")
+    cashier = make_staff(admin, client, role="cashier", branch_id=branch["id"], email=f"cash.{tag}@example.co")
     product = admin.post("/products", product_payload(code=tag[:4])).json()
     borrower = admin.post("/borrowers", borrower_payload(branch["id"], nationalId=f"ID-{tag}")).json()
     app = admin.post(
@@ -37,7 +38,7 @@ def build_tenant(client, tag: str) -> dict:
         },
     ).json()
     manager.post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
-    loan = admin.post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": f"R{tag}"}).json()
+    loan = cashier.post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": f"R{tag}"}).json()
     repayment = admin.post(
         "/repayments", {"loanId": loan["id"], "amount": loan["schedule"][0]["totalDue"], "channel": "cash"}
     ).json()
@@ -80,7 +81,7 @@ def test_list_endpoints_exclude_other_tenant(two_tenants):
 
     b_staff_ids = {row["id"] for row in admin_b.get("/staff").json()}
     assert a["manager"].staff["id"] not in b_staff_ids
-    assert len(b_staff_ids) == 2
+    assert len(b_staff_ids) == 3  # admin, manager, cashier
 
     b_audit = admin_b.get("/audit").json()
     a_entities = {a["borrower"]["id"], a["app"]["id"], a["loan"]["id"], a["repayment"]["id"]}

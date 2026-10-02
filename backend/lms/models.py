@@ -107,6 +107,13 @@ class Borrower(models.Model):
     customer_number = models.CharField(max_length=20, blank=True, default="", db_index=True)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
 
+    # verification — set by staff after checking NIDA, phone and documents
+    verified = models.BooleanField(default=False)
+    phone_verified = models.BooleanField(default=False)
+    verified_by = models.CharField(max_length=150, blank=True, default="")
+    verified_at = models.DateTimeField(null=True, blank=True)
+    dependents = models.IntegerField(null=True, blank=True)
+
     # 1. personal
     national_id = models.CharField(max_length=100, db_index=True)
     date_of_birth = models.DateField(null=True, blank=True)
@@ -280,6 +287,9 @@ class Application(models.Model):
     score_recommendation = models.CharField(
         max_length=20, choices=enums.ScoreRecommendation.choices, null=True, blank=True
     )
+    # risk indicators computed at intake (see services/applications.assess)
+    risk = models.JSONField(default=dict, blank=True)
+    needs_review = models.BooleanField(default=False)
 
     required_approver_role = models.CharField(max_length=30, choices=enums.StaffRole.choices)
     created_by = models.ForeignKey(Staff, on_delete=models.PROTECT, related_name="+")
@@ -373,6 +383,9 @@ class ScheduleInstalment(models.Model):
     status = models.CharField(
         max_length=20, choices=enums.InstalmentStatus.choices, default=enums.InstalmentStatus.UPCOMING
     )
+    # set by the aging job the first time this instalment goes overdue — the
+    # borrower's late-payment history survives the instalment later being paid
+    was_late = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["period"]
@@ -422,6 +435,8 @@ class AuditLogEntry(models.Model):
     entity = models.CharField(max_length=50)
     entity_id = models.CharField(max_length=36)
     details = models.TextField(blank=True, default="")
+    # {field: {"before": …, "after": …}} for edits
+    changes = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-timestamp"]
@@ -494,6 +509,31 @@ class SavingsTransaction(models.Model):
         ordering = ["-created_at"]
 
 
+class Collateral(models.Model):
+    class Status(models.TextChoices):
+        PLEDGED = "pledged"      # recorded, not yet securing an active loan
+        ACTIVE = "active"        # securing an active loan
+        RELEASED = "released"    # loan repaid, returned to owner
+        SEIZED = "seized"        # taken after default
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="collateral")
+    borrower = models.ForeignKey(Borrower, on_delete=models.PROTECT, related_name="collateral")
+    loan = models.ForeignKey("Loan", on_delete=models.SET_NULL, null=True, blank=True, related_name="collateral")
+    asset_type = models.CharField(max_length=60)
+    description = models.CharField(max_length=250)
+    estimated_value = models.DecimalField(max_digits=14, decimal_places=2)
+    owner_name = models.CharField(max_length=200, blank=True, default="")
+    ownership_document = models.CharField(max_length=200, blank=True, default="")  # title deed / card no.
+    valuation_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PLEDGED)
+    created_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
 class TillReconciliation(models.Model):
     """A cashier's end-of-day count of the physical cash drawer."""
 
@@ -525,6 +565,7 @@ class CollectionActivity(models.Model):
         MESSAGE = "message"
         NOTE = "note"
         PROMISE = "promise"
+        ESCALATION = "escalation"
 
     class Outcome(models.TextChoices):
         REACHED = "reached"

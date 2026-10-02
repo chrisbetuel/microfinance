@@ -6,6 +6,7 @@ import type {
   BorrowerGroup,
   BorrowerProfile,
   BorrowerStatus,
+  Collateral,
   GuarantorInput,
   Branch,
   CollectionActivity,
@@ -80,6 +81,7 @@ interface StoreState {
   notifications: Notification[]
   collectionActivities: CollectionActivity[]
   groups: BorrowerGroup[]
+  collateral: Collateral[]
 
   bootstrap: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
@@ -104,6 +106,12 @@ interface StoreState {
     patch: Partial<BorrowerProfile> & { guarantors?: GuarantorInput[] },
   ) => Promise<void>
   setBorrowerStatus: (borrowerId: string, status: BorrowerStatus, reason?: string) => Promise<void>
+  verifyBorrower: (borrowerId: string, verified: boolean, phoneVerified?: boolean) => Promise<void>
+  addCollateral: (
+    borrowerId: string,
+    input: Pick<Collateral, 'assetType' | 'description' | 'estimatedValue' | 'ownerName' | 'ownershipDocument' | 'valuationDate'> & { loanId?: string | null },
+  ) => Promise<void>
+  updateCollateral: (id: string, patch: Partial<Pick<Collateral, 'status' | 'estimatedValue' | 'valuationDate' | 'loanId'>>) => Promise<void>
   setBorrowerBlacklist: (borrowerId: string, blacklisted: boolean, reason: string | null) => Promise<void>
   uploadBorrowerDocument: (borrowerId: string, name: string, type: string) => Promise<void>
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
@@ -179,6 +187,7 @@ const EMPTY = {
   notifications: [],
   collectionActivities: [],
   groups: [],
+  collateral: [],
 }
 
 export const useStore = create<StoreState>()((set, get) => {
@@ -210,6 +219,7 @@ export const useStore = create<StoreState>()((set, get) => {
       notifications,
       collectionActivities,
       groups,
+      collateral,
     ] = await Promise.all([
       api.get<Lender>('/lender'),
       api.get<Branch[]>('/branches'),
@@ -223,6 +233,7 @@ export const useStore = create<StoreState>()((set, get) => {
       api.get<Notification[]>('/notifications'),
       api.get<CollectionActivity[]>('/collection-activities'),
       api.get<BorrowerGroup[]>('/groups'),
+      api.get<Collateral[]>('/collateral'),
     ])
     set({
       lender: normalizeLender(lender),
@@ -237,6 +248,7 @@ export const useStore = create<StoreState>()((set, get) => {
       notifications,
       collectionActivities,
       groups,
+      collateral,
     })
     await refreshAudit()
   }
@@ -354,6 +366,31 @@ export const useStore = create<StoreState>()((set, get) => {
       const updated = await api.patch<Borrower>(`/borrowers/${borrowerId}`, patch)
       set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
       toast.success('Borrower updated', updated.fullName)
+      await refreshAudit()
+    },
+
+    verifyBorrower: async (borrowerId, verified, phoneVerified) => {
+      const updated = await api.post<Borrower>('/borrowers/' + borrowerId + '/verify', { verified, phoneVerified })
+      set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
+      toast.success(verified ? 'Borrower verified' : 'Verification removed')
+      await refreshAudit()
+    },
+
+    addCollateral: async (borrowerId, input) => {
+      const created = await api.post<Collateral>('/borrowers/' + borrowerId + '/collateral', input)
+      const borrower = await api.get<Borrower>('/borrowers/' + borrowerId)
+      set((s) => ({
+        collateral: [created, ...s.collateral],
+        borrowers: s.borrowers.map((b) => (b.id === borrowerId ? borrower : b)),
+      }))
+      toast.success('Collateral recorded', created.description)
+      await refreshAudit()
+    },
+
+    updateCollateral: async (id, patch) => {
+      const updated = await api.patch<Collateral>('/collateral/' + id, patch)
+      set((s) => ({ collateral: s.collateral.map((c) => (c.id === id ? updated : c)) }))
+      toast.success('Collateral updated')
       await refreshAudit()
     },
 

@@ -103,6 +103,7 @@ def post_repayment(*, loan, product, amount: float, channel, recorded_by: str) -
         loan.closed_at = timezone.now()
         loan.closure_reason = "Repaid in full"
         fields += ["closed_at", "closure_reason"]
+        loan.collateral.filter(status="active").update(status="released")
     loan.save(update_fields=fields)
 
     return Repayment.objects.create(
@@ -145,6 +146,7 @@ def reverse_repayment(*, repayment, loan, product, loan_repayments, reason: str)
     _apply_allocation_result(schedule, fresh_rows)
     loan.outstanding_balance = _outstanding(schedule)
     if loan.outstanding_balance > 0 and loan.status == LoanStatus.CLOSED:
+        loan.collateral.filter(status="released").update(status="active")
         loan.status = LoanStatus.ACTIVE
         loan.closed_at = None
         loan.closure_reason = ""
@@ -156,3 +158,4 @@ def write_off(*, loan, reason: str, by_name: str) -> None:
     loan.closed_at = timezone.now()
     loan.closure_reason = f"Written off: {reason}"
     loan.save(update_fields=["status", "closed_at", "closure_reason"])
+    loan.collateral.filter(status="active").update(status="seized")

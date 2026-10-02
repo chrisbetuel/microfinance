@@ -21,6 +21,7 @@ from lms.models import (
     Borrower,
     BorrowerGroup,
     Branch,
+    Collateral,
     CollectionActivity,
     GroupMembership,
     Lender,
@@ -88,6 +89,7 @@ class Command(BaseCommand):
         Repayment.objects.filter(lender=lender).delete()
         Loan.objects.filter(lender=lender).delete()
         CollectionActivity.objects.filter(lender=lender).delete()
+        Collateral.objects.filter(lender=lender).delete()
         SavingsTransaction.objects.filter(account__lender=lender).delete()
         SavingsAccount.objects.filter(lender=lender).delete()
         TillReconciliation.objects.filter(lender=lender).delete()
@@ -169,6 +171,9 @@ class Command(BaseCommand):
             borrowers.append(Borrower.objects.create(
                 lender=lender, branch=branch, officer=officer,
                 customer_number=f"CUS-{i + 1:05d}",
+                verified=i % 5 != 4, phone_verified=i % 5 != 4,
+                verified_by=officer.name if i % 5 != 4 else "", verified_at=timezone.now() if i % 5 != 4 else None,
+                dependents=rng.randint(0, 5),
                 status="blacklisted" if i == 13 else "active",
                 gender="female" if i % 2 == 0 else "male",
                 marital_status=rng.choice(["single", "married", "married", "widowed"]),
@@ -232,6 +237,7 @@ class Command(BaseCommand):
                 declared_income=income, declared_expenses=expenses,
                 affordability_pass=a.affordability_pass, blacklist_check_pass=a.blacklist_check_pass,
                 credit_bureau_consent=True, score=a.score, score_recommendation=a.score_recommendation,
+                risk=a.risk, needs_review=a.needs_review,
                 required_approver_role=a.required_approver_role, created_by=borrower.officer,
                 created_at=now - timedelta(days=days_ago),
             )

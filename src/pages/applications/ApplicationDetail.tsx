@@ -98,6 +98,49 @@ export default function ApplicationDetail() {
             )}
           </Card>
 
+          {application.risk && application.risk.debtToIncome !== undefined && (
+            <Card>
+              <CardHeader
+                title="Risk assessment"
+                subtitle="Indicators calculated at intake from the borrower's finances and loan history"
+                action={
+                  application.needsReview ? (
+                    <Badge tone="amber">Needs additional review</Badge>
+                  ) : (
+                    <Badge tone="green">No concerns flagged</Badge>
+                  )
+                }
+              />
+              <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                {[
+                  ['New instalment', formatMoney(application.risk.newInstalment ?? 0)],
+                  ['Existing repayments', formatMoney(application.risk.existingRepayments ?? 0)],
+                  ['Disposable after loan', formatMoney(application.risk.disposableAfter ?? 0), (application.risk.disposableAfter ?? 0) < 0],
+                  ['Debt-to-income', `${Math.round((application.risk.debtToIncome ?? 0) * 100)}%`, (application.risk.debtToIncome ?? 0) > 0.5],
+                  ['Loan-to-income', application.risk.loanToIncome == null ? '—' : `${application.risk.loanToIncome}× monthly`, (application.risk.loanToIncome ?? 0) > 6],
+                  ['Existing debt here', formatMoney(application.risk.existingDebt ?? 0)],
+                  ['Previous loans', `${application.risk.previousLoans ?? 0} (${application.risk.completedLoans ?? 0} completed)`],
+                  ['Late instalments / defaults', `${application.risk.lateInstalments ?? 0} / ${application.risk.defaults ?? 0}`, (application.risk.defaults ?? 0) > 0 || (application.risk.lateInstalments ?? 0) >= 3],
+                ].map(([k, v, bad]) => (
+                  <div key={k as string} className="rounded-lg bg-slate-50 px-3 py-2">
+                    <dt className="text-[11px] text-slate-400">{k}</dt>
+                    <dd className={`font-semibold tabular-nums ${bad ? 'text-accent-600' : 'text-slate-800'}`}>{v}</dd>
+                  </div>
+                ))}
+              </dl>
+              {(application.risk.flags ?? []).length > 0 && (
+                <ul className="mt-4 space-y-1.5">
+                  {application.risk.flags!.map((f) => (
+                    <li key={f} className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      <span aria-hidden>⚠</span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          )}
+
           <Card>
             <CardHeader title="Approval trail" subtitle={`Requires: ${STAFF_ROLE_LABELS[application.requiredApproverRole]}`} />
             {application.approvals.length === 0 && <p className="text-sm text-slate-400">No decisions recorded yet.</p>}

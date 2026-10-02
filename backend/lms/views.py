@@ -20,6 +20,7 @@ from lms.models import (
     BorrowerGroup,
     BorrowerHistoryEvent,
     Branch,
+    Collateral,
     CollectionActivity,
     GroupMembership,
     Guarantor,
@@ -142,10 +143,13 @@ class LenderView(AdminWriteView):
 
     def patch(self, request):
         lender = request.user.lender
-        for field, value in validated(ser.LenderUpdateSerializer, request.data).items():
+        data = validated(ser.LenderUpdateSerializer, request.data)
+        diff = audit.diff(lender, data)
+        for field, value in data.items():
             setattr(lender, field, value)
         lender.save()
-        audit.record(request.user, "updated", "lender", lender.id, "Lender profile updated")
+        if diff:
+            audit.record(request.user, "updated", "lender", lender.id, "Lender profile updated", changes=diff)
         return Response(ser.LenderSerializer(lender).data)
 
 
@@ -203,13 +207,16 @@ class StaffDetailView(AdminWriteView):
             ensure_branch(request.user.lender, data["branch_id"])
 
         field_map = {"name": "name", "role": "role", "phone": "phone", "branch_id": "branch_id", "active": "is_active"}
+        diff = audit.diff(member, {dest: data[src] for src, dest in field_map.items() if src in data})
+        if "approval_limit" in data:
+            diff.update(audit.diff(member, {"approval_limit": int(data["approval_limit"])}))
         for src, dest in field_map.items():
             if src in data:
                 setattr(member, dest, data[src])
         if "approval_limit" in data:
             member.approval_limit = int(data["approval_limit"])
         member.save()
-        audit.record(request.user, "updated", "staff", member.id, "Staff account updated")
+        audit.record(request.user, "updated", "staff", member.id, f"Staff account updated: {member.name}", changes=diff)
         return Response(ser.StaffSerializer(member).data)
 
 
@@ -259,6 +266,7 @@ class BorrowersView(APIView):
         guarantors = data.pop("guarantors", None) or []
         ensure_branch(lender, data["branch_id"])
         ensure_staff_member(lender, officer_id)
+        _reject_duplicates(lender, data)
         if not data.get("next_of_kin") and data.get("emergency_name"):
             data["next_of_kin"] = data["emergency_name"]
 
@@ -302,6 +310,8 @@ class BorrowerDetailView(APIView):
         if "officer_id" in data and data["officer_id"] is not None:
             ensure_staff_member(lender, data["officer_id"])
         guarantors = data.pop("guarantors", None)
+        _reject_duplicates(lender, data, exclude_id=borrower.id)
+        diff = audit.diff(borrower, {k: v for k, v in data.items() if not (k == "officer_id" and v is None)})
 
         changes = []
         for field, new_val in data.items():
@@ -325,7 +335,7 @@ class BorrowerDetailView(APIView):
                 )
                 audit.record(
                     request.user, "updated", "borrower", borrower.id,
-                    f'Borrower "{borrower.full_name}" profile updated',
+                    f'Borrower "{borrower.full_name}" profile updated', changes=diff,
                 )
         return Response(ser.BorrowerSerializer(borrower_qs(lender).get(pk=borrower.pk)).data)
 
@@ -346,6 +356,105 @@ def _next_customer_number(lender) -> str:
     while Borrower.objects.filter(lender=lender, customer_number=f"CUS-{n:05d}").exists():
         n += 1
     return f"CUS-{n:05d}"
+
+
+def _reject_duplicates(lender, data, exclude_id=None):
+    """NIDA and phone numbers identify a borrower — refuse a second record."""
+    qs = Borrower.objects.filter(lender=lender)
+    if exclude_id is not None:
+        qs = qs.exclude(pk=exclude_id)
+    nid = (data.get("national_id") or "").strip()
+    if nid:
+        other = qs.filter(national_id__iexact=nid).first()
+        if other:
+            raise Conflict(f"NIDA number already registered to {other.full_name} ({other.customer_number})")
+    phone = "".join(ch for ch in (data.get("phone") or "") if ch.isdigit())
+    if phone:
+        for other in qs.only("id", "full_name", "customer_number", "phone"):
+            if "".join(ch for ch in other.phone if ch.isdigit()) == phone:
+                raise Conflict(f"Phone number already belongs to {other.full_name} ({other.customer_number})")
+
+
+class BorrowerVerifyView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def post(self, request, borrower_id):
+        borrower = borrower_qs(request.user.lender).filter(pk=borrower_id).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        data = validated(ser.BorrowerVerifySerializer, request.data)
+        with transaction.atomic():
+            borrower.verified = data["verified"]
+            if "phone_verified" in data:
+                borrower.phone_verified = data["phone_verified"]
+            borrower.verified_by = request.user.name if borrower.verified else ""
+            borrower.verified_at = timezone.now() if borrower.verified else None
+            borrower.save(update_fields=["verified", "phone_verified", "verified_by", "verified_at"])
+            label = "Profile verified" if borrower.verified else "Verification removed"
+            BorrowerHistoryEvent.objects.create(borrower=borrower, label=label, detail=f"By {request.user.name}")
+            audit.record(request.user, "verified" if borrower.verified else "unverified", "borrower", borrower.id,
+                         f"{label}: {borrower.full_name}")
+        return Response(ser.BorrowerSerializer(borrower_qs(request.user.lender).get(pk=borrower_id)).data)
+
+
+class CollateralListView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def get(self, request):
+        rows = Collateral.objects.filter(lender=request.user.lender)
+        return Response(ser.CollateralSerializer(rows, many=True).data)
+
+
+class BorrowerCollateralView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def post(self, request, borrower_id):
+        lender = request.user.lender
+        borrower = Borrower.objects.filter(pk=borrower_id, lender=lender).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        data = validated(ser.CollateralWriteSerializer, request.data)
+        loan = None
+        if data.get("loan_id"):
+            loan = Loan.objects.filter(pk=data["loan_id"], lender=lender, borrower=borrower).first()
+            if loan is None:
+                raise NotFound("Loan not found for this borrower")
+        with transaction.atomic():
+            item = Collateral.objects.create(
+                lender=lender, borrower=borrower, loan=loan,
+                asset_type=data["asset_type"], description=data["description"],
+                estimated_value=data["estimated_value"], owner_name=data.get("owner_name") or borrower.full_name,
+                ownership_document=data.get("ownership_document") or "", valuation_date=data.get("valuation_date"),
+                status=Collateral.Status.ACTIVE if loan and loan.status == LoanStatus.ACTIVE else Collateral.Status.PLEDGED,
+                created_by=request.user.name,
+            )
+            BorrowerHistoryEvent.objects.create(
+                borrower=borrower, label="Collateral recorded",
+                detail=f"{item.asset_type}: {item.description} ({float(item.estimated_value):,.0f})",
+            )
+            audit.record(request.user, "created", "collateral", item.id,
+                         f"{item.asset_type} worth {float(item.estimated_value):,.0f} pledged by {borrower.full_name}")
+        return Response(ser.CollateralSerializer(item).data, status=status.HTTP_201_CREATED)
+
+
+class CollateralDetailView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def patch(self, request, collateral_id):
+        lender = request.user.lender
+        item = Collateral.objects.filter(pk=collateral_id, lender=lender).first()
+        if item is None:
+            raise NotFound("Collateral not found")
+        data = validated(ser.CollateralUpdateSerializer, request.data)
+        if "loan_id" in data and data["loan_id"] is not None:
+            if not Loan.objects.filter(pk=data["loan_id"], lender=lender, borrower_id=item.borrower_id).exists():
+                raise NotFound("Loan not found for this borrower")
+        diff = audit.diff(item, data)
+        for field, value in data.items():
+            setattr(item, field, value)
+        item.save()
+        audit.record(request.user, "updated", "collateral", item.id, f"{item.asset_type} updated", changes=diff)
+        return Response(ser.CollateralSerializer(item).data)
 
 
 class BorrowerStatusView(APIView):
@@ -526,6 +635,8 @@ class ApplicationsView(APIView):
             raise UnprocessableEntity("Borrower is blacklisted")
         if borrower.status == Borrower.Status.SUSPENDED:
             raise UnprocessableEntity("Borrower is suspended")
+        if Loan.objects.filter(borrower=borrower, status=LoanStatus.WRITTEN_OFF).exists():
+            raise UnprocessableEntity("Borrower has an unresolved default (a written-off loan)")
 
         product = product_qs(lender).filter(pk=data["product_id"]).first()
         if product is None:
@@ -576,6 +687,8 @@ class ApplicationsView(APIView):
                 score=assessment.score,
                 score_recommendation=assessment.score_recommendation,
                 required_approver_role=assessment.required_approver_role,
+                risk=assessment.risk,
+                needs_review=assessment.needs_review,
                 created_by=request.user,
             )
             audit.record(
@@ -659,6 +772,8 @@ def _disburse_one(request_user, application, channel, reference):
     approver = last.approver_name if last else "Unknown"
     if approver == request_user.name:
         raise DisburseError("The approver and the person releasing funds must be different people")
+    if application.created_by_id == request_user.id:
+        raise DisburseError("You created this application — a different person must release the funds")
 
     with transaction.atomic():
         loan = loan_service.create_loan_from_application(
@@ -667,6 +782,8 @@ def _disburse_one(request_user, application, channel, reference):
         )
         application.status = ApplicationStatus.DISBURSED
         application.save(update_fields=["status"])
+        Collateral.objects.filter(borrower=application.borrower, status=Collateral.Status.PLEDGED, loan__isnull=True) \
+            .update(loan=loan, status=Collateral.Status.ACTIVE)
         audit.record(
             request_user, "disbursed", "loan", loan.id,
             f"{loan.net_disbursed:,.0f} disbursed via {channel} (ref {reference})",
@@ -688,7 +805,7 @@ class ApplicationDisburseView(APIView):
             loan = _disburse_one(request.user, application, data["channel"], data["reference"])
         except DisburseError as exc:
             msg = str(exc)
-            raise PermissionDenied(msg) if "different people" in msg else Conflict(msg)
+            raise PermissionDenied(msg) if ("different" in msg) else Conflict(msg)
         return Response(
             ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data,
             status=status.HTTP_201_CREATED,
@@ -778,6 +895,8 @@ class LoanSettleView(APIView):
                 f"Early settlement of {amount:,.0f}, receipt {repayment.receipt_number}",
             )
         notify.receipt(lender, loan.borrower, repayment)
+        if loan.status == LoanStatus.CLOSED:
+            notify.completed(lender, loan.borrower, loan)
         return Response(ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data)
 
 
@@ -867,6 +986,10 @@ class RepaymentsView(APIView):
             raise NotFound("Loan not found")
         if loan.status != LoanStatus.ACTIVE:
             raise Conflict("This loan is not active")
+        if data["amount"] > float(loan.outstanding_balance) + 0.01:
+            raise UnprocessableEntity(
+                f"Payment exceeds the outstanding balance of {float(loan.outstanding_balance):,.0f}"
+            )
         product = product_qs(lender).filter(pk=loan.product_id).first()
 
         with transaction.atomic():
@@ -879,6 +1002,9 @@ class RepaymentsView(APIView):
                 f"{data['amount']:,.0f} received via {data['channel']}, receipt {repayment.receipt_number}",
             )
         notify.receipt(lender, loan.borrower, repayment)
+        loan.refresh_from_db()
+        if loan.status == LoanStatus.CLOSED:
+            notify.completed(lender, loan.borrower, loan)
         return Response(ser.RepaymentSerializer(repayment).data, status=status.HTTP_201_CREATED)
 
 

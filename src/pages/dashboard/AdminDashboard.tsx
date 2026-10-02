@@ -6,7 +6,7 @@ import { ArrearsChart } from '../../components/dashboard/ArrearsChart'
 import { ApplicationQueueCard } from '../../components/dashboard/ApplicationQueueCard'
 import { DashboardHero } from '../../components/dashboard/DashboardHero'
 import { formatMoney } from '../../lib/format'
-import { collectedThisMonth, disbursedThisMonth, portfolioAtRisk, portfolioOutstanding } from '../../lib/selectors'
+import { collectedThisMonth, collectionRate, disbursedThisMonth, portfolioAtRisk, portfolioOutstanding, portfolioSummary } from '../../lib/selectors'
 
 export default function AdminDashboard() {
   const loans = useStore((s) => s.loans)
@@ -22,6 +22,8 @@ export default function AdminDashboard() {
   const collected = collectedThisMonth(repayments)
   const { par, atRiskAmount } = portfolioAtRisk(loans)
   const activeBorrowers = new Set(loans.filter((l) => l.status === 'active').map((l) => l.borrowerId)).size
+  const summary = portfolioSummary(loans, repayments)
+  const rate = collectionRate(loans)
 
   const byProduct = products.map((p) => ({
     product: p,
@@ -53,10 +55,25 @@ export default function AdminDashboard() {
         <StatTile label="Active borrowers" value={activeBorrowers.toString()} icon={<Users size={16} />} tone="brand" />
         <StatTile
           label="Collection rate"
-          value={collected > 0 && disbursed >= 0 ? `${Math.min(100, Math.round((collected / Math.max(collected + atRiskAmount * 0.1, 1)) * 100))}%` : '—'}
+          value={rate === null ? '—' : `${rate.toFixed(1)}%`}
+          hint="Paid ÷ due to date"
           icon={<TrendingUp size={16} />}
           tone="brand"
         />
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
+        <StatTile label="Total borrowers" value={borrowers.length.toString()} tone="brand" />
+        <StatTile label="Active loans" value={summary.activeLoans.toString()} tone="brand" />
+        <StatTile label="Total disbursed" value={formatMoney(summary.totalDisbursed, lender.currency)} tone="green" />
+        <StatTile label="Total collected" value={formatMoney(summary.totalCollected, lender.currency)} tone="green" />
+        <StatTile
+          label="Overdue"
+          value={formatMoney(summary.overdueAmount, lender.currency)}
+          hint={`${summary.overdueLoans} loan(s)`}
+          tone={summary.overdueLoans ? 'red' : 'green'}
+        />
+        <StatTile label="Defaulted / completed" value={`${summary.defaulted} / ${summary.completed}`} tone={summary.defaulted ? 'red' : 'brand'} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-3">

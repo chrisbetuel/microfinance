@@ -170,7 +170,7 @@ BORROWER_TEXT_FIELDS = [
     "mobile_money_provider", "mobile_money_number",
     "next_of_kin", "emergency_name", "emergency_relationship", "emergency_phone", "emergency_address",
 ]
-BORROWER_INT_FIELDS = ["years_trading", "years_employed"]
+BORROWER_INT_FIELDS = ["years_trading", "years_employed", "dependents"]
 BORROWER_MONEY_FIELDS = ["monthly_income", "monthly_expenses", "existing_loan_payments"]
 
 
@@ -186,6 +186,7 @@ class BorrowerSerializer(serializers.ModelSerializer):
         model = models.Borrower
         fields = [
             "id", "lender_id", "branch_id", "officer_id", "customer_number", "status", "type",
+            "verified", "phone_verified", "verified_by", "verified_at",
             "full_name", "national_id", "phone", "date_of_birth",
             *BORROWER_TEXT_FIELDS, *BORROWER_INT_FIELDS, *BORROWER_MONEY_FIELDS,
             "blacklisted", "blacklist_reason", "created_at", "guarantors", "documents", "history",
@@ -232,6 +233,41 @@ BorrowerUpdateSerializer = type("BorrowerUpdateSerializer", (serializers.Seriali
 class BorrowerStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=models.Borrower.Status.choices)
     reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class BorrowerVerifySerializer(serializers.Serializer):
+    verified = serializers.BooleanField()
+    phone_verified = serializers.BooleanField(required=False)
+
+
+class CollateralSerializer(serializers.ModelSerializer):
+    lender_id = Uuid()
+    borrower_id = Uuid()
+    loan_id = Uuid(allow_null=True)
+
+    class Meta:
+        model = models.Collateral
+        fields = [
+            "id", "lender_id", "borrower_id", "loan_id", "asset_type", "description", "estimated_value",
+            "owner_name", "ownership_document", "valuation_date", "status", "created_by", "created_at",
+        ]
+
+
+class CollateralWriteSerializer(serializers.Serializer):
+    asset_type = serializers.CharField()
+    description = serializers.CharField()
+    estimated_value = serializers.FloatField(min_value=0)
+    owner_name = serializers.CharField(required=False, allow_blank=True, default="")
+    ownership_document = serializers.CharField(required=False, allow_blank=True, default="")
+    valuation_date = serializers.DateField(required=False, allow_null=True)
+    loan_id = serializers.UUIDField(required=False, allow_null=True)
+
+
+class CollateralUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=models.Collateral.Status.choices, required=False)
+    estimated_value = serializers.FloatField(min_value=0, required=False)
+    valuation_date = serializers.DateField(required=False, allow_null=True)
+    loan_id = serializers.UUIDField(required=False, allow_null=True)
 
 
 class BlacklistSerializer(serializers.Serializer):
@@ -346,7 +382,7 @@ class ApplicationSerializer(serializers.ModelSerializer):
             "term_instalments", "purpose", "status", "declared_income", "declared_expenses",
             "affordability_pass", "duplicate_check_pass", "blacklist_check_pass",
             "credit_bureau_consent", "score", "score_recommendation", "required_approver_role",
-            "created_by", "created_at", "decline_reason", "approvals",
+            "created_by", "created_at", "decline_reason", "approvals", "risk", "needs_review",
         ]
 
 
@@ -375,7 +411,7 @@ class ScheduleInstalmentSerializer(serializers.ModelSerializer):
         model = models.ScheduleInstalment
         fields = [
             "id", "period", "due_date", "principal_due", "interest_due", "fees_due",
-            "penalty_due", "total_due", "paid_amount", "balance_after", "status",
+            "penalty_due", "total_due", "paid_amount", "balance_after", "status", "was_late",
         ]
 
 
@@ -462,7 +498,7 @@ class RepaymentReverseSerializer(serializers.Serializer):
 class AuditLogEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = models.AuditLogEntry
-        fields = ["id", "timestamp", "user_id", "user_name", "action", "entity", "entity_id", "details"]
+        fields = ["id", "timestamp", "user_id", "user_name", "action", "entity", "entity_id", "details", "changes"]
 
 
 class NotificationSerializer(serializers.ModelSerializer):

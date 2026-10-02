@@ -105,7 +105,28 @@ export default function SecurityAudit() {
               { header: 'User', cell: (e) => e.userName, sort: (e) => e.userName },
               { header: 'Action', cell: (e) => <Badge tone="slate">{e.action}</Badge>, sort: (e) => e.action },
               { header: 'Entity', cell: (e) => `${e.entity} · ${e.entityId.slice(0, 8)}` },
-              { header: 'Details', cell: (e) => <span className="text-slate-500">{e.details}</span> },
+              {
+                header: 'Details',
+                cell: (e) => (
+                  <div className="text-slate-500">
+                    {e.details}
+                    {e.changes && Object.keys(e.changes).length > 0 && (
+                      <ul className="mt-1 space-y-0.5 text-xs">
+                        {Object.entries(e.changes).map(([field, c]) => (
+                          <li key={field}>
+                            <span className="font-medium text-slate-600">
+                              {field.replace(/([A-Z])/g, ' $1').replace(/Id$/, '').toLowerCase()}
+                            </span>
+                            : <span className="text-accent-700 line-through">{String(c.before ?? '—') || '—'}</span>
+                            {' → '}
+                            <span className="text-emerald-700">{String(c.after ?? '—') || '—'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ),
+              },
             ]}
           />
         )}

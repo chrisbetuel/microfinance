@@ -70,6 +70,7 @@ function blankProfile(branchId: string, officerId: string): BorrowerProfile {
     sector: '',
     businessLocation: '',
     yearsTrading: null,
+    dependents: null,
     monthlyIncome: 0,
     monthlyExpenses: 0,
     otherIncomeSources: '',
@@ -354,6 +355,7 @@ export default function BorrowerForm() {
               <Grid>
                 <Field label="Monthly income"><input {...num('monthlyIncome')} /></Field>
                 <Field label="Monthly expenses"><input {...num('monthlyExpenses')} /></Field>
+                <Field label="Number of dependents"><input {...num('dependents')} /></Field>
                 <Field label="Other sources of income"><input {...text('otherIncomeSources')} /></Field>
                 <Field label="Existing loans" hint="Lender and amount"><input {...text('existingLoans')} /></Field>
                 <Field label="Existing monthly loan payments"><input {...num('existingLoanPayments')} /></Field>

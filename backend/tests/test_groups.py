@@ -8,9 +8,9 @@ def ctx(admin: Actor, branch: dict, client):
     officer = make_staff(admin, client, role="loan_officer", branch_id=branch["id"])
     manager = make_staff(admin, client, role="branch_manager", branch_id=branch["id"])
     product = admin.post("/products", product_payload()).json()
-    b1 = officer.post("/borrowers", borrower_payload(branch["id"], fullName="Asha One", nationalId="G-1")).json()
-    b2 = officer.post("/borrowers", borrower_payload(branch["id"], fullName="Bakari Two", nationalId="G-2")).json()
-    b3 = officer.post("/borrowers", borrower_payload(branch["id"], fullName="Chausiku Three", nationalId="G-3")).json()
+    b1 = officer.post("/borrowers", borrower_payload(branch["id"], fullName="Asha One", nationalId="G-1", phone="+255700000011")).json()
+    b2 = officer.post("/borrowers", borrower_payload(branch["id"], fullName="Bakari Two", nationalId="G-2", phone="+255700000012")).json()
+    b3 = officer.post("/borrowers", borrower_payload(branch["id"], fullName="Chausiku Three", nationalId="G-3", phone="+255700000013")).json()
     return {"admin": admin, "officer": officer, "manager": manager, "product": product,
             "branch": branch, "b1": b1, "b2": b2, "b3": b3}
 

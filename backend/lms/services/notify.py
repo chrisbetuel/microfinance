@@ -110,3 +110,24 @@ def arrears_reminder(lender, borrower, loan) -> Notification:
             f"{_money(loan.arrears_amount, lender.currency)} due. Please pay at any branch or via mobile money."
         ),
     )
+
+
+def upcoming(lender, borrower, loan, instalment) -> Notification:
+    due = float(instalment.total_due) - float(instalment.paid_amount)
+    return send(
+        lender, to=borrower.phone, borrower=borrower, kind="upcoming_payment",
+        body=(
+            f"{borrower.full_name}, a payment of {_money(due, lender.currency)} is due on "
+            f"{instalment.due_date:%d %b %Y}. Thank you for paying on time."
+        ),
+    )
+
+
+def completed(lender, borrower, loan) -> Notification:
+    return send(
+        lender, to=borrower.phone, borrower=borrower, kind="loan_completed",
+        body=(
+            f"Hongera {borrower.full_name}! Your loan of {_money(loan.principal, lender.currency)} "
+            f"is fully paid. Thank you for banking with {lender.name}."
+        ),
+    )
