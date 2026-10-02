@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def test_create_scores_and_routes(setup):
     assert resp.status_code == 201, resp.content
     app = resp.json()
     assert app["reference"].startswith("APP-")
-    assert app["status"] == "pending_approval"
+    assert app["status"] == "submitted"
     assert app["requiredApproverRole"] == "branch_manager"
     assert app["affordabilityPass"] is True
     assert app["score"] > 0
@@ -50,6 +50,7 @@ def test_blacklisted_borrower_cannot_apply(admin: Actor, setup):
 
 def test_creator_cannot_approve_own_application(setup):
     app = setup["officer"].post("/applications", _application_body(setup)).json()
+    forward_for_approval(app['id'])
     resp = setup["officer"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "looks fine"})
     assert resp.status_code == 403
 
@@ -57,12 +58,14 @@ def test_creator_cannot_approve_own_application(setup):
 def test_wrong_role_cannot_approve(admin: Actor, setup, client):
     app = setup["officer"].post("/applications", _application_body(setup)).json()
     cashier = make_staff(admin, client, role="cashier", branch_id=setup["branch"]["id"])
+    forward_for_approval(app['id'])
     resp = cashier.post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
     assert resp.status_code == 403
 
 
 def test_matching_role_approves(setup):
     app = setup["officer"].post("/applications", _application_body(setup)).json()
+    forward_for_approval(app['id'])
     resp = setup["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "clean history"})
     assert resp.status_code == 200
     body = resp.json()
@@ -72,6 +75,7 @@ def test_matching_role_approves(setup):
 
 def test_decline_records_reason(setup):
     app = setup["officer"].post("/applications", _application_body(setup)).json()
+    forward_for_approval(app['id'])
     resp = setup["manager"].post(
         f"/applications/{app['id']}/decision", {"decision": "declined", "comment": "insufficient security"}
     )
@@ -81,6 +85,8 @@ def test_decline_records_reason(setup):
 
 def test_cannot_decide_twice(setup):
     app = setup["officer"].post("/applications", _application_body(setup)).json()
+    forward_for_approval(app['id'])
     setup["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
+    forward_for_approval(app['id'])
     again = setup["manager"].post(f"/applications/{app['id']}/decision", {"decision": "declined", "comment": "no"})
     assert again.status_code == 409

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pytest
 from django.core.management import call_command
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
 
 
 @pytest.fixture
@@ -30,6 +30,7 @@ def _apply(t, borrower, amount=600_000, term=4):
 
 def _loan(t, borrower, amount=600_000):
     app = _apply(t, borrower, amount).json()
+    forward_for_approval(app['id'])
     t["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
     return t["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "R"}).json()
 
@@ -78,6 +79,7 @@ def test_creator_cannot_disburse_own_application(team, client):
         "amount": 600_000, "termInstalments": 4, "purpose": "x",
         "declaredIncome": 900_000, "declaredExpenses": 200_000, "creditBureauConsent": True,
     }).json()
+    forward_for_approval(app['id'])
     team["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
     r = team["admin"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "X"})
     assert r.status_code == 403

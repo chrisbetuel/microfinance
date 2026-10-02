@@ -16,6 +16,8 @@ from lms.exceptions import Conflict, UnprocessableEntity
 from lms.models import (
     ApprovalLevel,
     Application,
+    ApplicationDocument,
+    ApplicationEvent,
     ApprovalDecision,
     Borrower,
     BorrowerDocument,
@@ -284,7 +286,9 @@ class BorrowersView(APIView):
                 lender=lender, officer_id=officer_id, blacklisted=False,
                 customer_number=_next_customer_number(lender), **data,
             )
-            Guarantor.objects.bulk_create(Guarantor(borrower=borrower, **g) for g in guarantors)
+            Guarantor.objects.bulk_create(
+                Guarantor(borrower=borrower, **{k: v for k, v in g.items() if k != "id"}) for g in guarantors
+            )
             BorrowerHistoryEvent.objects.create(
                 borrower=borrower, label="File opened",
                 detail=f"Borrower registered by {request.user.name}",
@@ -331,8 +335,19 @@ class BorrowerDetailView(APIView):
                 changes.append(field.replace("_", " "))
             setattr(borrower, field, new_val)
         if guarantors is not None:
-            borrower.guarantors.all().delete()
-            Guarantor.objects.bulk_create(Guarantor(borrower=borrower, **g) for g in guarantors)
+            # update guarantors by id so applications that name them keep their links
+            existing = {g.id: g for g in borrower.guarantors.all()}
+            kept = set()
+            for g in guarantors:
+                gid = g.pop("id", None)
+                if gid in existing:
+                    for field, value in g.items():
+                        setattr(existing[gid], field, value)
+                    existing[gid].save()
+                    kept.add(gid)
+                else:
+                    Guarantor.objects.create(borrower=borrower, **g)
+            borrower.guarantors.exclude(pk__in=kept).filter(pk__in=list(existing)).delete()
             changes.append("guarantors")
         borrower.save()
 
@@ -414,6 +429,24 @@ class CollateralListView(APIView):
         return Response(ser.CollateralSerializer(rows, many=True).data)
 
 
+class BorrowerGuarantorsView(APIView):
+    """Add one guarantor — used while capturing a loan application."""
+
+    permission_classes = [IsAuthenticated, section_editor("applications")]
+
+    def post(self, request, borrower_id):
+        borrower = Borrower.objects.filter(pk=borrower_id, lender=request.user.lender).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        data = validated(ser.GuarantorWriteSerializer, request.data)
+        data.pop("id", None)
+        with transaction.atomic():
+            g = Guarantor.objects.create(borrower=borrower, **data)
+            BorrowerHistoryEvent.objects.create(borrower=borrower, label="Guarantor added", detail=g.name)
+            audit.record(request.user, "created", "guarantor", g.id, f"Guarantor {g.name} added for {borrower.full_name}")
+        return Response(ser.GuarantorSerializer(g).data, status=status.HTTP_201_CREATED)
+
+
 class BorrowerCollateralView(APIView):
     permission_classes = [IsAuthenticated, section_editor("borrowers")]
 
@@ -434,6 +467,7 @@ class BorrowerCollateralView(APIView):
                 asset_type=data["asset_type"], description=data["description"],
                 estimated_value=data["estimated_value"], owner_name=data.get("owner_name") or borrower.full_name,
                 ownership_document=data.get("ownership_document") or "", valuation_date=data.get("valuation_date"),
+                valued_by=data["valued_by"], existing_claims=data["existing_claims"], documents=data["documents"],
                 status=Collateral.Status.ACTIVE if loan and loan.status == LoanStatus.ACTIVE else Collateral.Status.PLEDGED,
                 created_by=request.user.name,
             )
@@ -621,9 +655,118 @@ class ProductDetailView(APIView):
 
 
 # ----------------------------------------------------------------- applications
+#
+# Workflow: draft → submitted → under_assessment → pending_approval → approved
+# (or declined) → disbursed. An approver can return an application to
+# under_assessment for further review. Every move is an ApplicationEvent.
+
+EDITABLE_STAGES = (ApplicationStatus.DRAFT, ApplicationStatus.SUBMITTED, ApplicationStatus.UNDER_ASSESSMENT)
+ASSESSMENT_LABELS = {
+    "recommended": "Recommended",
+    "further_review": "Requires further review",
+    "not_recommended": "Not recommended",
+}
+
 
 def application_qs(lender):
-    return Application.objects.filter(lender=lender).prefetch_related("approvals")
+    return Application.objects.filter(lender=lender).prefetch_related(
+        "approvals", "documents", "events", "group_members", "guarantors", "collateral",
+    )
+
+
+def _application_or_404(request, application_id):
+    application = application_qs(request.user.lender).filter(pk=application_id).first()
+    if application is None:
+        raise NotFound("Application not found")
+    return application
+
+
+def _application_response(lender, application_id, code=status.HTTP_200_OK):
+    return Response(ser.ApplicationSerializer(application_qs(lender).get(pk=application_id)).data, status=code)
+
+
+def _app_event(application, stage, label, user=None, note=""):
+    ApplicationEvent.objects.create(
+        application=application, stage=stage, label=label, note=note or "", by=user.name if user else "",
+    )
+
+
+def _check_terms(product, amount, term):
+    if not (float(product.min_amount) <= amount <= float(product.max_amount)):
+        raise UnprocessableEntity("Amount is outside the product range")
+    if not (product.min_term_instalments <= term <= product.max_term_instalments):
+        raise UnprocessableEntity("Term is outside the product range")
+
+
+def _check_group(lender, borrower, group_id):
+    if group_id is None:
+        return None
+    group = BorrowerGroup.objects.filter(pk=group_id, lender=lender).first()
+    if group is None:
+        raise NotFound("Group not found")
+    if not GroupMembership.objects.filter(group=group, borrower=borrower, active=True).exists():
+        raise UnprocessableEntity("Borrower is not an active member of that group")
+    return group
+
+
+def _link_parties(application, data):
+    """Attach the guarantors, collateral and (for group loans) members named in `data`."""
+    borrower = application.borrower
+    if "guarantor_ids" in data:
+        ids = set(data["guarantor_ids"])
+        found = list(Guarantor.objects.filter(pk__in=ids, borrower=borrower))
+        if len(found) != len(ids):
+            raise UnprocessableEntity("Guarantors must be recorded on the applicant's profile")
+        application.guarantors.set(found)
+    if "collateral_ids" in data:
+        ids = set(data["collateral_ids"])
+        found = list(
+            Collateral.objects.filter(pk__in=ids, lender=application.lender, borrower=borrower)
+            .exclude(status__in=[Collateral.Status.RELEASED, Collateral.Status.SEIZED])
+        )
+        if len(found) != len(ids):
+            raise UnprocessableEntity("Collateral must belong to the applicant and not be released or seized")
+        claimed = [c for c in found if c.loan_id is not None]
+        if claimed:
+            raise UnprocessableEntity(f"{claimed[0].asset_type} already secures another loan")
+        application.collateral.set(found)
+    if application.group_id is None:
+        application.group_members.clear()
+    elif "group_member_ids" in data or not application.group_members.exists():
+        wanted = set(data.get("group_member_ids") or []) | {application.borrower_id}
+        members = list(
+            Borrower.objects.filter(
+                pk__in=wanted, group_memberships__group_id=application.group_id, group_memberships__active=True,
+            ).distinct()
+        )
+        if len(members) != len(wanted):
+            raise UnprocessableEntity("Every member on a group application must be an active member of the group")
+        application.group_members.set(members)
+
+
+def _reassess(application):
+    """Recompute the automatic checks and risk indicators from the current figures."""
+    duplicates = Borrower.objects.filter(lender=application.lender, national_id=application.borrower.national_id).count()
+    capacity = application_service.repayment_capacity(
+        monthly_income=application.declared_income, other_income=application.other_income,
+        business_income=application.business_income, business_expenses=application.business_expenses,
+    )
+    a = application_service.assess(
+        product=application.product, borrower=application.borrower, amount=float(application.amount),
+        term_instalments=application.term_instalments, declared_income=capacity["total_income"],
+        declared_expenses=float(application.declared_expenses), has_duplicate_national_id=duplicates > 1,
+        external_repayments=float(application.existing_repayments), dependents=application.dependents,
+        application=application,
+    )
+    application.affordability_pass = a.affordability_pass
+    application.duplicate_check_pass = a.duplicate_check_pass
+    application.blacklist_check_pass = a.blacklist_check_pass
+    application.score = a.score
+    application.score_recommendation = a.score_recommendation
+    application.required_approver_role = a.required_approver_role
+    application.risk = a.risk
+    application.needs_review = a.needs_review
+    application.save()
 
 
 class ApplicationsView(APIView):
@@ -652,29 +795,20 @@ class ApplicationsView(APIView):
             raise NotFound("Loan product not found")
         if not product.active:
             raise UnprocessableEntity("Loan product is not active")
+        group = _check_group(lender, borrower, data.get("group_id"))
+        _check_terms(product, data["amount"], data["term_instalments"])
 
-        group_id = data.get("group_id")
-        if group_id is not None:
-            group = BorrowerGroup.objects.filter(pk=group_id, lender=lender).first()
-            if group is None:
-                raise NotFound("Group not found")
-            if not GroupMembership.objects.filter(group=group, borrower=borrower, active=True).exists():
-                raise UnprocessableEntity("Borrower is not an active member of that group")
-        if not (float(product.min_amount) <= data["amount"] <= float(product.max_amount)):
-            raise UnprocessableEntity("Amount is outside the product range")
-        if not (product.min_term_instalments <= data["term_instalments"] <= product.max_term_instalments):
-            raise UnprocessableEntity("Term is outside the product range")
+        officer = request.user
+        if data.get("loan_officer_id"):
+            officer = ensure_staff_member(lender, data["loan_officer_id"])
+        application_date = data.get("application_date") or timezone.localdate()
+        if data.get("first_repayment_date") and data["first_repayment_date"] <= application_date:
+            raise UnprocessableEntity("The first repayment date must be after the application date")
+        existing_repayments = data.get("existing_repayments")
+        if existing_repayments is None:
+            existing_repayments = float(borrower.existing_loan_payments or 0)
 
-        duplicates = Borrower.objects.filter(lender=lender, national_id=borrower.national_id).count()
-        assessment = application_service.assess(
-            product=product,
-            borrower=borrower,
-            amount=data["amount"],
-            term_instalments=data["term_instalments"],
-            declared_income=data["declared_income"],
-            declared_expenses=data["declared_expenses"],
-            has_duplicate_national_id=duplicates > 1,
-        )
+        draft = data["draft"]
         with transaction.atomic():
             application = Application.objects.create(
                 lender=lender,
@@ -682,87 +816,265 @@ class ApplicationsView(APIView):
                 reference=application_service.next_reference(lender),
                 borrower=borrower,
                 product=product,
-                group_id=group_id,
+                group=group,
                 amount=data["amount"],
                 term_instalments=data["term_instalments"],
+                requested_amount=data["amount"],
+                requested_term=data["term_instalments"],
                 purpose=data["purpose"],
-                status=ApplicationStatus.PENDING_APPROVAL,
+                status=ApplicationStatus.DRAFT if draft else ApplicationStatus.SUBMITTED,
                 declared_income=data["declared_income"],
                 declared_expenses=data["declared_expenses"],
-                affordability_pass=assessment.affordability_pass,
-                duplicate_check_pass=assessment.duplicate_check_pass,
-                blacklist_check_pass=assessment.blacklist_check_pass,
                 credit_bureau_consent=data["credit_bureau_consent"],
-                score=assessment.score,
-                score_recommendation=assessment.score_recommendation,
-                required_approver_role=assessment.required_approver_role,
-                risk=assessment.risk,
-                needs_review=assessment.needs_review,
+                required_approver_role=StaffRole.BRANCH_MANAGER,
                 created_by=request.user,
+                loan_officer=officer,
+                application_date=application_date,
+                disbursement_method=data.get("disbursement_method") or "",
+                first_repayment_date=data.get("first_repayment_date"),
+                other_income=data["other_income"],
+                business_income=data["business_income"],
+                business_expenses=data["business_expenses"],
+                existing_loans_count=data["existing_loans_count"],
+                existing_repayments=existing_repayments,
+                dependents=data["dependents"],
             )
+            _link_parties(application, data)
+            for doc in data["documents"]:
+                if doc.get("name") and doc.get("type"):
+                    ApplicationDocument.objects.create(
+                        application=application, type=str(doc["type"])[:60], name=str(doc["name"])[:200],
+                        uploaded_by=request.user.name,
+                    )
+            _reassess(application)
+            _app_event(application, application.status, "Draft saved" if draft else "Application submitted", request.user)
             audit.record(
                 request.user, "created", "application", application.id,
-                f"Application {application.reference} submitted for {borrower.full_name}",
+                f"Application {application.reference} {'drafted' if draft else 'submitted'} for {borrower.full_name}",
             )
-        return Response(
-            ser.ApplicationSerializer(application_qs(lender).get(pk=application.pk)).data,
-            status=status.HTTP_201_CREATED,
-        )
+        return _application_response(lender, application.pk, status.HTTP_201_CREATED)
 
 
 class ApplicationDetailView(APIView):
     permission_classes = [IsAuthenticated, section_editor("applications")]
 
     def get(self, request, application_id):
-        application = application_qs(request.user.lender).filter(pk=application_id).first()
-        if application is None:
-            raise NotFound("Application not found")
-        return Response(ser.ApplicationSerializer(application).data)
+        return Response(ser.ApplicationSerializer(_application_or_404(request, application_id)).data)
+
+    def patch(self, request, application_id):
+        application = _application_or_404(request, application_id)
+        if application.status not in EDITABLE_STAGES:
+            raise Conflict("The application can only be edited before it goes for approval")
+        data = validated(ser.ApplicationUpdateSerializer, request.data)
+        lender = request.user.lender
+
+        if "product_id" in data:
+            product = product_qs(lender).filter(pk=data["product_id"], active=True).first()
+            if product is None:
+                raise NotFound("Active loan product not found")
+            application.product = product
+        if "group_id" in data:
+            application.group = _check_group(lender, application.borrower, data["group_id"])
+        if "loan_officer_id" in data:
+            application.loan_officer = ensure_staff_member(lender, data["loan_officer_id"]) if data["loan_officer_id"] else None
+        if "amount" in data:
+            application.requested_amount = data["amount"]
+        if "term_instalments" in data:
+            application.requested_term = data["term_instalments"]
+        simple = [
+            "amount", "term_instalments", "purpose", "declared_income", "declared_expenses", "credit_bureau_consent",
+            "disbursement_method", "first_repayment_date", "other_income", "business_income", "business_expenses",
+            "existing_loans_count", "existing_repayments", "dependents",
+        ]
+        changes = audit.diff(application, {k: data[k] for k in simple if k in data})
+        for k in simple:
+            if k in data:
+                setattr(application, k, data[k])
+        _check_terms(application.product, float(application.amount), application.term_instalments)
+        if application.first_repayment_date and application.first_repayment_date <= application.application_date:
+            raise UnprocessableEntity("The first repayment date must be after the application date")
+
+        with transaction.atomic():
+            application.save()
+            _link_parties(application, data)
+            _reassess(application)
+            audit.record(request.user, "updated", "application", application.id,
+                         f"Application {application.reference} updated", changes=changes)
+        return _application_response(lender, application.pk)
+
+
+class ApplicationSubmitView(APIView):
+    """Draft → submitted."""
+
+    permission_classes = [IsAuthenticated, section_editor("applications")]
+
+    def post(self, request, application_id):
+        application = _application_or_404(request, application_id)
+        if application.status != ApplicationStatus.DRAFT:
+            raise Conflict("Only a draft can be submitted")
+        with transaction.atomic():
+            application.status = ApplicationStatus.SUBMITTED
+            application.save(update_fields=["status"])
+            _app_event(application, application.status, "Application submitted", request.user)
+            audit.record(request.user, "submitted", "application", application.id,
+                         f"Application {application.reference} submitted")
+        return _application_response(request.user.lender, application.pk)
+
+
+class ApplicationStartAssessmentView(APIView):
+    """Submitted → under assessment: a loan officer picks the application up."""
+
+    permission_classes = [IsAuthenticated, section_editor("applications")]
+
+    def post(self, request, application_id):
+        application = _application_or_404(request, application_id)
+        if application.status != ApplicationStatus.SUBMITTED:
+            raise Conflict("Only a submitted application can be taken for assessment")
+        with transaction.atomic():
+            application.status = ApplicationStatus.UNDER_ASSESSMENT
+            application.save(update_fields=["status"])
+            _app_event(application, application.status, "Assessment started", request.user)
+        return _application_response(request.user.lender, application.pk)
+
+
+class ApplicationAssessmentView(APIView):
+    """The loan officer's assessment. With `forward`, it goes to the approver."""
+
+    permission_classes = [IsAuthenticated, section_editor("applications")]
+
+    def post(self, request, application_id):
+        application = _application_or_404(request, application_id)
+        if application.status not in (ApplicationStatus.SUBMITTED, ApplicationStatus.UNDER_ASSESSMENT):
+            raise Conflict("This application is not open for assessment")
+        data = validated(ser.ApplicationAssessmentSerializer, request.data)
+        if data["assessed_amount"] > float(application.requested_amount or application.amount):
+            raise UnprocessableEntity("The assessed amount can't exceed the requested amount")
+        _check_terms(application.product, data["assessed_amount"], data["recommended_term"])
+        forward = data["forward"]
+        if forward and data["result"] == "further_review":
+            raise UnprocessableEntity("Resolve the further review before forwarding for approval")
+
+        label = ASSESSMENT_LABELS[data["result"]]
+        with transaction.atomic():
+            application.assessment_result = data["result"]
+            application.assessed_amount = data["assessed_amount"]
+            application.recommended_term = data["recommended_term"]
+            application.assessment_notes = data["notes"]
+            application.assessed_by = request.user
+            application.assessed_at = timezone.now()
+            application.status = ApplicationStatus.PENDING_APPROVAL if forward else ApplicationStatus.UNDER_ASSESSMENT
+            application.save()
+            _reassess(application)
+            _app_event(
+                application, application.status,
+                f"Assessed: {label}" + (" — forwarded for approval" if forward else ""),
+                request.user, data["notes"],
+            )
+            audit.record(request.user, "assessed", "application", application.id,
+                         f"Application {application.reference} assessed: {label}")
+        return _application_response(request.user.lender, application.pk)
 
 
 class ApplicationDecisionView(APIView):
     permission_classes = [IsAuthenticated, section_editor("applications")]
 
     def post(self, request, application_id):
-        application = application_qs(request.user.lender).filter(pk=application_id).first()
-        if application is None:
-            raise NotFound("Application not found")
+        application = _application_or_404(request, application_id)
         data = validated(ser.ApplicationDecisionSerializer, request.data)
 
-        if application.status not in (ApplicationStatus.PENDING_APPROVAL, ApplicationStatus.SUBMITTED):
-            raise Conflict("This application is no longer open for a decision")
+        if application.status != ApplicationStatus.PENDING_APPROVAL:
+            raise Conflict("This application is not awaiting an approval decision")
         if application.created_by_id == request.user.id:
             raise PermissionDenied("You created this application — a different approver must decide it")
+        if application.assessed_by_id == request.user.id:
+            raise PermissionDenied("You assessed this application — a different approver must decide it")
         if not can_approve_application(request.user.role, application.required_approver_role):
             raise PermissionDenied(f"This amount requires a {application.required_approver_role} decision")
+
+        decision = data["decision"]
+        amount = float(application.amount)
+        term = application.term_instalments
+        if decision == "approved":
+            amount = data.get("approved_amount") or float(application.assessed_amount or application.amount)
+            term = data.get("approved_term") or application.recommended_term or application.term_instalments
+            if amount > float(application.requested_amount or application.amount):
+                raise UnprocessableEntity("The approved amount can't exceed the requested amount")
+            _check_terms(application.product, amount, term)
         if (
             request.user.approval_limit > 0
-            and float(application.amount) > request.user.approval_limit
+            and amount > request.user.approval_limit
             and request.user.role != StaffRole.LENDER_ADMIN
         ):
             raise PermissionDenied(
-                f"Your approval limit ({request.user.approval_limit:,.0f}) is below this application amount ({float(application.amount):,.0f})"
+                f"Your approval limit ({request.user.approval_limit:,.0f}) is below this application amount ({amount:,.0f})"
             )
+        if decision != "approved" and not data["comment"].strip():
+            raise UnprocessableEntity("Give a reason when declining or returning an application")
 
-        approved = data["decision"] == "approved"
         with transaction.atomic():
-            application.status = ApplicationStatus.APPROVED if approved else ApplicationStatus.DECLINED
-            application.decline_reason = None if approved else data["comment"]
-            application.save(update_fields=["status", "decline_reason"])
+            if decision == "approved":
+                application.status = ApplicationStatus.APPROVED
+                application.amount = amount
+                application.term_instalments = term
+                application.decline_reason = None
+                label = f"Approved — {amount:,.0f} over {term} instalments"
+            elif decision == "declined":
+                application.status = ApplicationStatus.DECLINED
+                application.decline_reason = data["comment"]
+                label = "Declined"
+            else:
+                application.status = ApplicationStatus.UNDER_ASSESSMENT
+                label = "Returned for further review"
+            application.save(update_fields=["status", "amount", "term_instalments", "decline_reason"])
             ApprovalDecision.objects.create(
                 application=application,
                 approver=request.user,
                 approver_name=request.user.name,
                 role=request.user.role,
-                decision=data["decision"],
+                decision=decision,
                 comment=data["comment"],
             )
+            _app_event(application, application.status, label, request.user, data["comment"])
             audit.record(
-                request.user, data["decision"], "application", application.id,
-                data["comment"] or f"Application {data['decision']} by {request.user.name}",
+                request.user, decision, "application", application.id,
+                data["comment"] or f"Application {decision} by {request.user.name}",
             )
-        notify.decision(request.user.lender, application.borrower, application)
-        return Response(ser.ApplicationSerializer(application_qs(request.user.lender).get(pk=application_id)).data)
+        if decision != "returned":
+            notify.decision(request.user.lender, application.borrower, application)
+        return _application_response(request.user.lender, application.pk)
+
+
+class ApplicationDocumentsView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("applications")]
+
+    def post(self, request, application_id):
+        application = _application_or_404(request, application_id)
+        if application.status in (ApplicationStatus.DECLINED, ApplicationStatus.DISBURSED):
+            raise Conflict("This application is closed")
+        data = validated(ser.ApplicationDocumentWriteSerializer, request.data)
+        doc = ApplicationDocument.objects.create(
+            application=application, type=data["type"], name=data["name"], uploaded_by=request.user.name,
+        )
+        audit.record(request.user, "uploaded", "application", application.id, f"{doc.type}: {doc.name}")
+        return _application_response(request.user.lender, application.pk, status.HTTP_201_CREATED)
+
+
+class ApplicationDocumentDetailView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("applications")]
+
+    def patch(self, request, application_id, document_id):
+        application = _application_or_404(request, application_id)
+        doc = application.documents.filter(pk=document_id).first()
+        if doc is None:
+            raise NotFound("Document not found")
+        data = validated(ser.ApplicationDocumentVerifySerializer, request.data)
+        doc.status = data["status"]
+        doc.note = data["note"]
+        doc.verified_by = request.user.name if data["status"] != "pending" else ""
+        doc.verified_at = timezone.now() if data["status"] != "pending" else None
+        doc.save()
+        audit.record(request.user, "verified", "application", application.id, f"{doc.type} marked {doc.status}")
+        return _application_response(request.user.lender, application.pk)
 
 
 DisburseError = disbursement_service.DisburseError

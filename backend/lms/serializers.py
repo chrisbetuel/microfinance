@@ -194,6 +194,7 @@ class BorrowerSerializer(serializers.ModelSerializer):
 
 
 class GuarantorWriteSerializer(serializers.Serializer):
+    id = serializers.UUIDField(required=False, allow_null=True)  # keep an existing guarantor (and its links)
     name = serializers.CharField()
     national_id = serializers.CharField()
     phone = serializers.CharField()
@@ -249,7 +250,8 @@ class CollateralSerializer(serializers.ModelSerializer):
         model = models.Collateral
         fields = [
             "id", "lender_id", "borrower_id", "loan_id", "asset_type", "description", "estimated_value",
-            "owner_name", "ownership_document", "valuation_date", "status", "created_by", "created_at",
+            "owner_name", "ownership_document", "valuation_date", "valued_by", "existing_claims", "documents",
+            "status", "created_by", "created_at",
         ]
 
 
@@ -260,6 +262,9 @@ class CollateralWriteSerializer(serializers.Serializer):
     owner_name = serializers.CharField(required=False, allow_blank=True, default="")
     ownership_document = serializers.CharField(required=False, allow_blank=True, default="")
     valuation_date = serializers.DateField(required=False, allow_null=True)
+    valued_by = serializers.CharField(required=False, allow_blank=True, default="")
+    existing_claims = serializers.CharField(required=False, allow_blank=True, default="")
+    documents = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     loan_id = serializers.UUIDField(required=False, allow_null=True)
 
 
@@ -366,14 +371,52 @@ class ApprovalDecisionSerializer(serializers.ModelSerializer):
         fields = ["id", "approver_id", "approver_name", "role", "decision", "date", "comment"]
 
 
+class ApplicationDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.ApplicationDocument
+        fields = ["id", "type", "name", "status", "note", "verified_by", "verified_at", "uploaded_by", "uploaded_at"]
+
+
+class ApplicationEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.ApplicationEvent
+        fields = ["id", "stage", "label", "note", "by", "at"]
+
+
 class ApplicationSerializer(serializers.ModelSerializer):
     lender_id = Uuid()
     branch_id = Uuid()
     borrower_id = Uuid()
     product_id = Uuid()
     group_id = Uuid(allow_null=True)
-    created_by = Uuid()
+    created_by = Uuid(source="created_by_id")
+    loan_officer_id = Uuid(allow_null=True)
+    assessed_by_id = Uuid(allow_null=True)
     approvals = ApprovalDecisionSerializer(many=True, read_only=True)
+    documents = ApplicationDocumentSerializer(many=True, read_only=True)
+    events = ApplicationEventSerializer(many=True, read_only=True)
+    group_member_ids = serializers.SerializerMethodField()
+    guarantor_ids = serializers.SerializerMethodField()
+    collateral_ids = serializers.SerializerMethodField()
+    capacity = serializers.SerializerMethodField()
+
+    def get_group_member_ids(self, obj):
+        return [str(b.pk) for b in obj.group_members.all()]
+
+    def get_guarantor_ids(self, obj):
+        return [str(g.pk) for g in obj.guarantors.all()]
+
+    def get_collateral_ids(self, obj):
+        return [str(c.pk) for c in obj.collateral.all()]
+
+    def get_capacity(self, obj):
+        from lms.services.applications import repayment_capacity
+
+        return repayment_capacity(
+            monthly_income=obj.declared_income, other_income=obj.other_income,
+            business_income=obj.business_income, business_expenses=obj.business_expenses,
+            monthly_expenses=obj.declared_expenses, existing_repayments=obj.existing_repayments,
+        )
 
     class Meta:
         model = models.Application
@@ -383,6 +426,12 @@ class ApplicationSerializer(serializers.ModelSerializer):
             "affordability_pass", "duplicate_check_pass", "blacklist_check_pass",
             "credit_bureau_consent", "score", "score_recommendation", "required_approver_role",
             "created_by", "created_at", "decline_reason", "approvals", "risk", "needs_review",
+            "requested_amount", "requested_term", "loan_officer_id", "application_date", "disbursement_method",
+            "first_repayment_date", "group_member_ids", "guarantor_ids", "collateral_ids",
+            "other_income", "business_income", "business_expenses", "existing_loans_count", "existing_repayments",
+            "dependents", "capacity",
+            "assessment_result", "assessed_amount", "recommended_term", "assessment_notes", "assessed_by_id",
+            "assessed_at", "documents", "events",
         ]
 
 
@@ -397,11 +446,73 @@ class ApplicationCreateSerializer(serializers.Serializer):
     declared_income = serializers.FloatField()
     declared_expenses = serializers.FloatField()
     credit_bureau_consent = serializers.BooleanField(required=False, default=False)
+    # staged workflow — all optional so a minimal application still works
+    draft = serializers.BooleanField(required=False, default=False)
+    loan_officer_id = serializers.UUIDField(required=False, allow_null=True)
+    application_date = serializers.DateField(required=False, allow_null=True)
+    disbursement_method = serializers.ChoiceField(choices=enums.DisbursementChannel.choices, required=False, allow_blank=True)
+    first_repayment_date = serializers.DateField(required=False, allow_null=True)
+    group_member_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    guarantor_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    collateral_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    other_income = serializers.FloatField(required=False, min_value=0, default=0)
+    business_income = serializers.FloatField(required=False, min_value=0, default=0)
+    business_expenses = serializers.FloatField(required=False, min_value=0, default=0)
+    existing_loans_count = serializers.IntegerField(required=False, min_value=0, default=0)
+    existing_repayments = serializers.FloatField(required=False, min_value=0, allow_null=True, default=None)
+    dependents = serializers.IntegerField(required=False, min_value=0, default=0)
+    documents = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+
+
+class ApplicationUpdateSerializer(serializers.Serializer):
+    """Edits while the application is still with the loan officer."""
+
+    product_id = serializers.UUIDField(required=False)
+    group_id = serializers.UUIDField(required=False, allow_null=True)
+    amount = serializers.FloatField(required=False)
+    term_instalments = serializers.IntegerField(required=False)
+    purpose = serializers.CharField(required=False, allow_blank=True)
+    declared_income = serializers.FloatField(required=False, min_value=0)
+    declared_expenses = serializers.FloatField(required=False, min_value=0)
+    credit_bureau_consent = serializers.BooleanField(required=False)
+    loan_officer_id = serializers.UUIDField(required=False, allow_null=True)
+    disbursement_method = serializers.ChoiceField(choices=enums.DisbursementChannel.choices, required=False, allow_blank=True)
+    first_repayment_date = serializers.DateField(required=False, allow_null=True)
+    group_member_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    guarantor_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    collateral_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    other_income = serializers.FloatField(required=False, min_value=0)
+    business_income = serializers.FloatField(required=False, min_value=0)
+    business_expenses = serializers.FloatField(required=False, min_value=0)
+    existing_loans_count = serializers.IntegerField(required=False, min_value=0)
+    existing_repayments = serializers.FloatField(required=False, min_value=0)
+    dependents = serializers.IntegerField(required=False, min_value=0)
+
+
+class ApplicationAssessmentSerializer(serializers.Serializer):
+    result = serializers.ChoiceField(choices=enums.AssessmentResult.choices)
+    assessed_amount = serializers.FloatField(min_value=0)
+    recommended_term = serializers.IntegerField(min_value=1)
+    notes = serializers.CharField(allow_blank=True, required=False, default="")
+    forward = serializers.BooleanField(required=False, default=False)
 
 
 class ApplicationDecisionSerializer(serializers.Serializer):
     decision = serializers.ChoiceField(choices=enums.ApprovalDecisionType.choices)
     comment = serializers.CharField(allow_blank=True)
+    # optional: approve on different terms than requested
+    approved_amount = serializers.FloatField(required=False, allow_null=True, min_value=0)
+    approved_term = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+
+
+class ApplicationDocumentWriteSerializer(serializers.Serializer):
+    type = serializers.CharField(max_length=60)
+    name = serializers.CharField(max_length=200)
+
+
+class ApplicationDocumentVerifySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=models.ApplicationDocument.Status.choices)
+    note = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 # --------------------------------------------------------------------------- loans

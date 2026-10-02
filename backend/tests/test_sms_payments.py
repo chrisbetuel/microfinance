@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pytest
 from django.core.management import call_command
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
 
 
 @pytest.fixture
@@ -26,6 +26,7 @@ def _approved_app(t, borrower):
         "amount": 600_000, "termInstalments": 4, "purpose": "x",
         "declaredIncome": 900_000, "declaredExpenses": 200_000, "creditBureauConsent": True,
     }).json()
+    forward_for_approval(app['id'])
     t["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
     return app
 

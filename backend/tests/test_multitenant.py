@@ -4,7 +4,7 @@ repayments or audit trail."""
 
 import pytest
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
 
 
 def build_tenant(client, tag: str) -> dict:
@@ -37,6 +37,7 @@ def build_tenant(client, tag: str) -> dict:
             "declaredIncome": 900_000, "declaredExpenses": 200_000, "creditBureauConsent": True,
         },
     ).json()
+    forward_for_approval(app['id'])
     manager.post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
     loan = cashier.post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": f"R{tag}"}).json()
     repayment = admin.post(
@@ -97,6 +98,7 @@ def test_cross_tenant_writes_are_rejected(two_tenants):
         f"/borrowers/{a['borrower']['id']}/blacklist", {"blacklisted": True, "reason": "z"}
     ).status_code in bad
     assert admin_b.patch(f"/products/{a['product']['id']}", {"active": False}).status_code in bad
+    forward_for_approval(a['app']['id'])
     assert admin_b.post(
         f"/applications/{a['app']['id']}/decision", {"decision": "declined", "comment": "z"}
     ).status_code in bad

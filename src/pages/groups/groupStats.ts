@@ -44,7 +44,7 @@ export function groupLoans(group: BorrowerGroup, applications: Application[], lo
         borrowerId: a.borrowerId,
         reference: a.reference,
         purpose: a.purpose,
-        requested: a.amount,
+        requested: a.requestedAmount || a.amount,
         approved: loan ? loan.principal : a.status === 'approved' ? a.amount : null,
         outstanding: loan && loan.status !== 'closed' ? loan.outstandingBalance : 0,
         repaid,

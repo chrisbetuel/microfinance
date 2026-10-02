@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type {
   Application,
+  ApplicationDocument,
+  ApplicationInput,
+  AssessmentResult,
   AuditLogEntry,
   Borrower,
   BorrowerGroup,
@@ -10,6 +13,7 @@ import type {
   Integrations,
   PaymentNetwork,
   PaymentTransaction,
+  Guarantor,
   GuarantorInput,
   Branch,
   CollectionActivity,
@@ -29,6 +33,7 @@ import type {
   StaffRole,
 } from '../types'
 import { api, ApiError, getToken, setToken } from '../lib/api'
+import { NAV_ACCESS } from '../lib/permissions'
 import { toast } from '../lib/toast'
 import { cachedTimeoutMinutes, clearActivity, idleMs, markActivity } from '../lib/session'
 
@@ -126,8 +131,10 @@ interface StoreState {
   verifyBorrower: (borrowerId: string, verified: boolean, phoneVerified?: boolean) => Promise<void>
   addCollateral: (
     borrowerId: string,
-    input: Pick<Collateral, 'assetType' | 'description' | 'estimatedValue' | 'ownerName' | 'ownershipDocument' | 'valuationDate'> & { loanId?: string | null },
-  ) => Promise<void>
+    input: Pick<Collateral, 'assetType' | 'description' | 'estimatedValue' | 'ownerName' | 'ownershipDocument' | 'valuationDate'> &
+      Partial<Pick<Collateral, 'valuedBy' | 'existingClaims' | 'documents'>> & { loanId?: string | null },
+  ) => Promise<Collateral>
+  addGuarantor: (borrowerId: string, input: GuarantorInput) => Promise<Guarantor>
   sendSms: (input: { borrowerId?: string; to?: string; message: string }) => Promise<Notification>
   sendBulkSms: (input: BulkSmsInput) => Promise<{ batch: string; recipients: number; sent: number; failed: number }>
   refreshPayments: () => Promise<void>
@@ -142,20 +149,29 @@ interface StoreState {
   saveProduct: (product: LoanProduct) => Promise<void>
   toggleProductActive: (productId: string) => Promise<void>
 
-  createApplication: (input: {
-    borrowerId: string
-    productId: string
-    branchId: string
-    groupId?: string | null
-    amount: number
-    termInstalments: number
-    purpose: string
-    declaredIncome: number
-    declaredExpenses: number
-    creditBureauConsent: boolean
-    createdBy?: string
-  }) => Promise<string>
-  decideApplication: (applicationId: string, decision: 'approved' | 'declined', comment: string) => Promise<void>
+  createApplication: (
+    input: Partial<ApplicationInput> &
+      Pick<ApplicationInput, 'borrowerId' | 'productId' | 'amount' | 'termInstalments' | 'purpose' | 'declaredIncome' | 'declaredExpenses' | 'creditBureauConsent'> & {
+        draft?: boolean
+        documents?: { type: string; name: string }[]
+        createdBy?: string
+      },
+  ) => Promise<string>
+  updateApplication: (applicationId: string, patch: Partial<ApplicationInput>) => Promise<void>
+  submitApplication: (applicationId: string) => Promise<void>
+  startAssessment: (applicationId: string) => Promise<void>
+  saveAssessment: (
+    applicationId: string,
+    input: { result: AssessmentResult; assessedAmount: number; recommendedTerm: number; notes: string; forward: boolean },
+  ) => Promise<void>
+  decideApplication: (
+    applicationId: string,
+    decision: 'approved' | 'declined' | 'returned',
+    comment: string,
+    terms?: { approvedAmount?: number; approvedTerm?: number },
+  ) => Promise<void>
+  addApplicationDocument: (applicationId: string, type: string, name: string) => Promise<void>
+  verifyApplicationDocument: (applicationId: string, documentId: string, status: ApplicationDocument['status'], note?: string) => Promise<void>
 
   disburseLoan: (applicationId: string, channel: DisbursementChannel, reference: string) => Promise<void>
   disburseBatch: (
@@ -228,7 +244,10 @@ export const useStore = create<StoreState>()((set, get) => {
   }
 
   async function refreshAudit() {
+    const me = get().staff.find((m) => m.id === get().currentStaffId)
     try {
+      // only roles with the Security & Audit page may read the log
+      if (me && !NAV_ACCESS[me.role].includes('/security')) throw new ApiError(403, 'forbidden')
       set({ auditLog: await api.get<AuditLogEntry[]>('/audit') })
     } catch (err) {
       if (!(err instanceof ApiError) || err.status !== 403) throw err
@@ -424,6 +443,15 @@ export const useStore = create<StoreState>()((set, get) => {
       }))
       toast.success('Collateral recorded', created.description)
       await refreshAudit()
+      return created
+    },
+
+    addGuarantor: async (borrowerId, input) => {
+      const created = await api.post<Guarantor>('/borrowers/' + borrowerId + '/guarantors', input)
+      const borrower = await api.get<Borrower>('/borrowers/' + borrowerId)
+      set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? borrower : b)) }))
+      toast.success('Guarantor added', created.name)
+      return created
     },
 
     sendSms: async (input) => {
@@ -535,29 +563,60 @@ export const useStore = create<StoreState>()((set, get) => {
     },
 
     createApplication: async (input) => {
-      const created = await api.post<Application>('/applications', {
-        borrowerId: input.borrowerId,
-        productId: input.productId,
-        branchId: input.branchId,
-        groupId: input.groupId ?? null,
-        amount: input.amount,
-        termInstalments: input.termInstalments,
-        purpose: input.purpose,
-        declaredIncome: input.declaredIncome,
-        declaredExpenses: input.declaredExpenses,
-        creditBureauConsent: input.creditBureauConsent,
-      })
+      const { createdBy: _createdBy, ...body } = input
+      const created = await api.post<Application>('/applications', { ...body, groupId: input.groupId ?? null })
       set((s) => ({ applications: [created, ...s.applications] }))
-      toast.success('Application submitted')
+      toast.success(input.draft ? 'Draft saved' : 'Application submitted', created.reference)
       await refreshAudit()
       return created.id
     },
 
-    decideApplication: async (applicationId, decision, comment) => {
-      const updated = await api.post<Application>(`/applications/${applicationId}/decision`, { decision, comment })
+    updateApplication: async (applicationId, patch) => {
+      const updated = await api.patch<Application>(`/applications/${applicationId}`, patch)
       set((s) => ({ applications: s.applications.map((a) => (a.id === applicationId ? updated : a)) }))
-      toast.success(decision === 'approved' ? 'Application approved' : 'Application declined')
+      toast.success('Application updated', updated.reference)
       await refreshAudit()
+    },
+
+    submitApplication: async (applicationId) => {
+      const updated = await api.post<Application>(`/applications/${applicationId}/submit`)
+      set((s) => ({ applications: s.applications.map((a) => (a.id === applicationId ? updated : a)) }))
+      toast.success('Application submitted', updated.reference)
+      await refreshAudit()
+    },
+
+    startAssessment: async (applicationId) => {
+      const updated = await api.post<Application>(`/applications/${applicationId}/start-assessment`)
+      set((s) => ({ applications: s.applications.map((a) => (a.id === applicationId ? updated : a)) }))
+      toast.success('Assessment started')
+    },
+
+    saveAssessment: async (applicationId, input) => {
+      const updated = await api.post<Application>(`/applications/${applicationId}/assessment`, input)
+      set((s) => ({ applications: s.applications.map((a) => (a.id === applicationId ? updated : a)) }))
+      toast.success(input.forward ? 'Forwarded for approval' : 'Assessment saved')
+      await refreshAudit()
+    },
+
+    decideApplication: async (applicationId, decision, comment, terms) => {
+      const updated = await api.post<Application>(`/applications/${applicationId}/decision`, { decision, comment, ...terms })
+      set((s) => ({ applications: s.applications.map((a) => (a.id === applicationId ? updated : a)) }))
+      toast.success(
+        decision === 'approved' ? 'Application approved' : decision === 'declined' ? 'Application declined' : 'Returned for further review',
+      )
+      await refreshAudit()
+    },
+
+    addApplicationDocument: async (applicationId, type, name) => {
+      const updated = await api.post<Application>(`/applications/${applicationId}/documents`, { type, name })
+      set((s) => ({ applications: s.applications.map((a) => (a.id === applicationId ? updated : a)) }))
+      toast.success('Document attached', name)
+    },
+
+    verifyApplicationDocument: async (applicationId, documentId, status, note = '') => {
+      const updated = await api.patch<Application>(`/applications/${applicationId}/documents/${documentId}`, { status, note })
+      set((s) => ({ applications: s.applications.map((a) => (a.id === applicationId ? updated : a)) }))
+      toast.success(status === 'verified' ? 'Document verified' : status === 'rejected' ? 'Document rejected' : 'Document reset')
     },
 
     disburseLoan: async (applicationId, channel, reference) => {

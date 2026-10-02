@@ -49,6 +49,7 @@ class GracePeriodAppliesTo(models.TextChoices):
 class ApplicationStatus(models.TextChoices):
     DRAFT = "draft"
     SUBMITTED = "submitted"
+    UNDER_ASSESSMENT = "under_assessment"
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
     DECLINED = "declined"
@@ -64,6 +65,13 @@ class ScoreRecommendation(models.TextChoices):
 class ApprovalDecisionType(models.TextChoices):
     APPROVED = "approved"
     DECLINED = "declined"
+    RETURNED = "returned"  # sent back to the loan officer for further review
+
+
+class AssessmentResult(models.TextChoices):
+    RECOMMENDED = "recommended"
+    FURTHER_REVIEW = "further_review"
+    NOT_RECOMMENDED = "not_recommended"
 
 
 class LoanStatus(models.TextChoices):

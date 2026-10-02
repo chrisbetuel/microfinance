@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
 
 
 @pytest.fixture
@@ -23,6 +23,7 @@ def approved_batch(admin: Actor, branch: dict, client):
                 "declaredIncome": 900_000, "declaredExpenses": 200_000, "creditBureauConsent": True,
             },
         ).json()
+        forward_for_approval(app['id'])
         manager.post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
         apps.append(app)
     return {"manager": manager, "cashier": cashier, "apps": apps}

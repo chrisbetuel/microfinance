@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pytest
 from django.core.management import call_command
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
 
 
 @pytest.fixture
@@ -21,6 +21,7 @@ def loan_ctx(admin: Actor, branch: dict, client):
             "declaredIncome": 900_000, "declaredExpenses": 300_000, "creditBureauConsent": True,
         },
     ).json()
+    forward_for_approval(app['id'])
     manager.post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
     loan = cashier.post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "R1"}).json()
     return {"admin": admin, "manager": manager, "cashier": cashier, "borrower": borrower, "loan": loan}

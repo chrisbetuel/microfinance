@@ -33,6 +33,7 @@ const tabs = [
 const statusTone: Record<ApplicationStatus, BadgeTone> = {
   draft: 'slate',
   submitted: 'blue',
+  under_assessment: 'blue',
   pending_approval: 'amber',
   approved: 'green',
   declined: 'red',

@@ -121,7 +121,7 @@ export default function BorrowerForm() {
     return profile
   })
   const [guarantors, setGuarantors] = useState<GuarantorInput[]>(() =>
-    existing ? existing.guarantors.map(({ id: _id, ...g }) => g) : [],
+    existing ? existing.guarantors.map((g) => ({ ...g })) : [],
   )
   const [docs, setDocs] = useState<{ type: string; name: string }[]>([])
   const [step, setStep] = useState<StepId>('personal')

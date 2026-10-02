@@ -16,6 +16,8 @@ from django.utils import timezone
 from lms.enums import ApplicationStatus, ApprovalDecisionType, StaffRole
 from lms.models import (
     Application,
+    ApplicationDocument,
+    ApplicationEvent,
     ApprovalDecision,
     AuditLogEntry,
     Borrower,
@@ -250,29 +252,73 @@ class Command(BaseCommand):
         now = timezone.now()
         ref_n = 0
 
-        def make_application(borrower, product, amount, term, days_ago, decision=None, disburse_days_ago=None):
+        assessment_of = {"recommend": "recommended", "caution": "further_review", "decline": "not_recommended"}
+
+        def make_application(borrower, product, amount, term, days_ago, decision=None, disburse_days_ago=None,
+                             stage="pending_approval"):
+            """Walk an application through the workflow up to `stage` (or the decision)."""
             nonlocal ref_n
             ref_n += 1
             income = float(borrower.monthly_income)
-            expenses = income * rng.uniform(0.3, 0.55)
+            expenses = round(income * rng.uniform(0.3, 0.55), -3)
+            other_income = rng.choice([0, 0, 50_000, 100_000])
+            existing = float(borrower.existing_loan_payments or 0)
             a = application_service.assess(
                 product=product, borrower=borrower, amount=amount, term_instalments=term,
-                declared_income=income, declared_expenses=expenses, has_duplicate_national_id=False,
+                declared_income=income + other_income, declared_expenses=expenses, has_duplicate_national_id=False,
+                external_repayments=existing, dependents=borrower.dependents or 0,
             )
+            submitted_at = now - timedelta(days=days_ago)
+            officer = borrower.officer
             app = Application.objects.create(
                 lender=lender, branch=borrower.branch, reference=f"APP-{now.year}-{ref_n:04d}",
                 borrower=borrower, product=product, amount=amount, term_instalments=term,
+                requested_amount=amount, requested_term=term,
                 purpose=rng.choice(["Restock inventory", "Buy equipment", "Working capital", "Expand shop"]),
-                status=ApplicationStatus.PENDING_APPROVAL,
-                declared_income=income, declared_expenses=expenses,
+                status=ApplicationStatus.SUBMITTED,
+                declared_income=income, declared_expenses=expenses, other_income=other_income,
+                existing_repayments=existing, dependents=borrower.dependents or 0,
+                loan_officer=officer, application_date=submitted_at.date(), disbursement_method="mobile_money",
                 affordability_pass=a.affordability_pass, blacklist_check_pass=a.blacklist_check_pass,
                 credit_bureau_consent=True, score=a.score, score_recommendation=a.score_recommendation,
                 risk=a.risk, needs_review=a.needs_review,
-                required_approver_role=a.required_approver_role, created_by=borrower.officer,
-                created_at=now - timedelta(days=days_ago),
+                required_approver_role=a.required_approver_role, created_by=officer,
+                created_at=submitted_at,
             )
-            audit_record(borrower.officer, "created", "application", app.id,
+            ApplicationEvent.objects.create(application=app, stage="submitted", label="Application submitted",
+                                            by=officer.name, at=submitted_at)
+            ApplicationDocument.objects.create(application=app, type="Identification", name="nida-card.jpg",
+                                               uploaded_by=officer.name, uploaded_at=submitted_at,
+                                               status="verified", verified_by=officer.name, verified_at=submitted_at)
+            ApplicationDocument.objects.create(application=app, type="Income evidence", name="mpesa-statement-3m.pdf",
+                                               uploaded_by=officer.name, uploaded_at=submitted_at,
+                                               status="verified" if decision else "pending",
+                                               verified_by=officer.name if decision else "",
+                                               verified_at=submitted_at if decision else None)
+            audit_record(officer, "created", "application", app.id,
                          f"Application {app.reference} submitted for {borrower.full_name}")
+            if decision or stage in ("under_assessment", "pending_approval"):
+                ApplicationEvent.objects.create(application=app, stage="under_assessment", label="Assessment started",
+                                                by=officer.name, at=submitted_at + timedelta(hours=2))
+                app.status = ApplicationStatus.UNDER_ASSESSMENT
+            if decision or stage == "pending_approval":
+                result = assessment_of.get(a.score_recommendation, "recommended")
+                if result == "further_review":
+                    result = "recommended"
+                label = {"recommended": "Recommended", "not_recommended": "Not recommended"}[result]
+                notes = ("Business visited; stock and sales records match the declared income."
+                         if result == "recommended" else "Repayment capacity is thin for the requested amount.")
+                app.assessment_result = result
+                app.assessed_amount = amount
+                app.recommended_term = term
+                app.assessment_notes = notes
+                app.assessed_by = officer
+                app.assessed_at = submitted_at + timedelta(hours=20)
+                app.status = ApplicationStatus.PENDING_APPROVAL
+                ApplicationEvent.objects.create(application=app, stage="pending_approval",
+                                                label=f"Assessed: {label} — forwarded for approval",
+                                                note=notes, by=officer.name, at=app.assessed_at)
+            app.save()
             approver = None
             if decision:
                 approver = committee if a.required_approver_role == "credit_committee" else next(
@@ -287,6 +333,11 @@ class Command(BaseCommand):
                     comment="Strong history." if decision == "approved" else "Declined by committee.",
                     date=now - timedelta(days=days_ago - 1),
                 )
+                ApplicationEvent.objects.create(
+                    application=app, stage=app.status, by=approver.name, at=now - timedelta(days=days_ago - 1),
+                    label=f"Approved — {amount:,.0f} over {term} instalments" if decision == "approved" else "Declined",
+                    note="Strong history." if decision == "approved" else "Declined by committee.",
+                )
                 audit_record(approver, decision, "application", app.id, f"Application {decision} by {approver.name}")
                 notify.decision(lender, borrower, app)
             if disburse_days_ago is not None:
@@ -298,6 +349,8 @@ class Command(BaseCommand):
                 )
                 app.status = ApplicationStatus.DISBURSED
                 app.save(update_fields=["status"])
+                ApplicationEvent.objects.create(application=app, stage="disbursed", label="Disbursed via mobile money",
+                                                note=f"Reference MM-{ref_n:05d}", by=cashier.name, at=disbursed_on)
                 audit_record(cashier, "disbursed", "loan", loan.id,
                              f"{loan.net_disbursed:,.0f} disbursed via mobile money")
                 notify.disbursed(lender, borrower, loan)
@@ -307,9 +360,10 @@ class Command(BaseCommand):
         healthy = [b for b in borrowers if not b.blacklisted]
 
         # a spread of pending / declined applications
-        for b in healthy[:3]:
+        for b, stage in zip(healthy[:3], ["submitted", "under_assessment", "pending_approval"]):
             prod = products[0]
-            make_application(b, prod, rng.choice([600_000, 1_200_000, 2_000_000]), 6, days_ago=rng.randint(1, 10))
+            make_application(b, prod, rng.choice([600_000, 1_200_000, 2_000_000]), 6, days_ago=rng.randint(1, 10),
+                             stage=stage)
         make_application(healthy[3], products[2], 6_500_000, 18, days_ago=8)  # pending, committee level
         make_application(healthy[4], products[1], 100_000, 20, days_ago=6, decision="declined")
 
@@ -342,6 +396,8 @@ class Command(BaseCommand):
         if grp is not None:  # members' loans were taken as group loans
             member_ids = [m.borrower_id for m in grp.memberships.all()]
             Application.objects.filter(lender=lender, borrower_id__in=member_ids).update(group=grp)
+            for group_app in Application.objects.filter(group=grp):
+                group_app.group_members.set([group_app.borrower_id])
             Loan.objects.filter(lender=lender, borrower_id__in=member_ids).update(group=grp)
 
         result = aging.age_all(lender=lender)

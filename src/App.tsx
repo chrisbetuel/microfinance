@@ -13,7 +13,7 @@ import BorrowerForm from './pages/borrowers/BorrowerForm'
 import ProductsList from './pages/products/ProductsList'
 import ProductEditor from './pages/products/ProductEditor'
 import ApplicationsList from './pages/applications/ApplicationsList'
-import ApplicationNew from './pages/applications/ApplicationNew'
+import ApplicationForm from './pages/applications/ApplicationForm'
 import ApplicationDetail from './pages/applications/ApplicationDetail'
 import DisbursementQueue from './pages/disbursement/DisbursementQueue'
 import Repayments from './pages/repayments/Repayments'
@@ -94,7 +94,8 @@ export default function App() {
             <Route path="/products/new" element={<ProductEditor />} />
             <Route path="/products/:id" element={<ProductEditor />} />
             <Route path="/applications" element={<ApplicationsList />} />
-            <Route path="/applications/new" element={<ApplicationNew />} />
+            <Route path="/applications/new" element={<ApplicationForm />} />
+            <Route path="/applications/:id/edit" element={<ApplicationForm />} />
             <Route path="/applications/:id" element={<ApplicationDetail />} />
             <Route path="/disbursement" element={<DisbursementQueue />} />
             <Route path="/repayments" element={<Repayments />} />

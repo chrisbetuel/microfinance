@@ -68,9 +68,16 @@ class ScheduleRow:
     status: str = "upcoming"
 
 
-def generate_schedule(product, principal: float, term_instalments: int, start_date: datetime | date) -> list[ScheduleRow]:
+def generate_schedule(
+    product, principal: float, term_instalments: int, start_date: datetime | date, first_due: date | None = None
+) -> list[ScheduleRow]:
+    """`first_due` (the borrower's proposed first repayment date) replaces the
+    first period's date when it falls after `start_date`; later instalments
+    follow at the product's frequency from there."""
     if isinstance(start_date, datetime):
         start_date = start_date.date()
+    if first_due is not None and first_due <= start_date:
+        first_due = None
 
     rate = _rate_per_instalment(product)
     added_fees = total_fee_amount(product, principal, "added")
@@ -86,7 +93,7 @@ def generate_schedule(product, principal: float, term_instalments: int, start_da
     due_date = start_date
 
     for period in range(1, term_instalments + 1):
-        due_date = _add_period(due_date, product.repayment_frequency)
+        due_date = first_due if (period == 1 and first_due) else _add_period(due_date, product.repayment_frequency)
         is_grace_period = period == 1 and product.grace_period_days > 0
 
         if product.interest_method == "reducing":

@@ -269,12 +269,39 @@ class Application(models.Model):
     product = models.ForeignKey(LoanProduct, on_delete=models.PROTECT, related_name="+")
     group = models.ForeignKey("BorrowerGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
+    # `amount`/`term_instalments` are the working terms: the request until an
+    # approver approves a different amount, which then becomes the loan.
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     term_instalments = models.IntegerField()
+    requested_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    requested_term = models.IntegerField(default=0)
     purpose = models.TextField(blank=True, default="")
     status = models.CharField(
-        max_length=20, choices=enums.ApplicationStatus.choices, default=enums.ApplicationStatus.PENDING_APPROVAL
+        max_length=20, choices=enums.ApplicationStatus.choices, default=enums.ApplicationStatus.SUBMITTED
     )
+    loan_officer = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    application_date = models.DateField(default=timezone.localdate)
+    disbursement_method = models.CharField(max_length=20, choices=enums.DisbursementChannel.choices, blank=True, default="")
+    first_repayment_date = models.DateField(null=True, blank=True)
+    group_members = models.ManyToManyField(Borrower, blank=True, related_name="+")
+    guarantors = models.ManyToManyField("Guarantor", blank=True, related_name="applications")
+    collateral = models.ManyToManyField("Collateral", blank=True, related_name="applications")
+
+    # financial assessment (monthly figures)
+    other_income = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    business_income = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    business_expenses = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    existing_loans_count = models.IntegerField(default=0)
+    existing_repayments = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    dependents = models.IntegerField(default=0)
+
+    # loan officer's assessment
+    assessment_result = models.CharField(max_length=20, choices=enums.AssessmentResult.choices, blank=True, default="")
+    assessed_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    recommended_term = models.IntegerField(null=True, blank=True)
+    assessment_notes = models.TextField(blank=True, default="")
+    assessed_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    assessed_at = models.DateTimeField(null=True, blank=True)
 
     declared_income = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     declared_expenses = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -298,6 +325,42 @@ class Application(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class ApplicationDocument(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        VERIFIED = "verified"
+        REJECTED = "rejected"
+
+    id = uuid_pk()
+    application = models.ForeignKey(Application, on_delete=models.CASCADE, related_name="documents")
+    type = models.CharField(max_length=60)
+    name = models.CharField(max_length=200)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    note = models.CharField(max_length=250, blank=True, default="")
+    verified_by = models.CharField(max_length=150, blank=True, default="")
+    verified_at = models.DateTimeField(null=True, blank=True)
+    uploaded_by = models.CharField(max_length=150, blank=True, default="")
+    uploaded_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["uploaded_at"]
+
+
+class ApplicationEvent(models.Model):
+    """One step through the approval workflow: who moved the application to which stage."""
+
+    id = uuid_pk()
+    application = models.ForeignKey(Application, on_delete=models.CASCADE, related_name="events")
+    stage = models.CharField(max_length=20, choices=enums.ApplicationStatus.choices)
+    label = models.CharField(max_length=150)
+    note = models.TextField(blank=True, default="")
+    by = models.CharField(max_length=150, blank=True, default="")
+    at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["at"]
 
 
 class ApprovalDecision(models.Model):
@@ -597,6 +660,9 @@ class Collateral(models.Model):
     owner_name = models.CharField(max_length=200, blank=True, default="")
     ownership_document = models.CharField(max_length=200, blank=True, default="")  # title deed / card no.
     valuation_date = models.DateField(null=True, blank=True)
+    valued_by = models.CharField(max_length=150, blank=True, default="")
+    existing_claims = models.CharField(max_length=250, blank=True, default="")  # liens / other lenders
+    documents = models.JSONField(default=list, blank=True)  # supporting document names
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PLEDGED)
     created_by = models.CharField(max_length=150)
     created_at = models.DateTimeField(default=timezone.now)

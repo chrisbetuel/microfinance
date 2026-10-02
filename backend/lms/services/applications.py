@@ -28,6 +28,24 @@ class Assessment:
     needs_review: bool
 
 
+# Share of free monthly cash flow that may go to the new instalment.
+CAPACITY_SHARE = 0.6
+
+
+def repayment_capacity(*, monthly_income, other_income=0, business_income=0, business_expenses=0,
+                       monthly_expenses=0, existing_repayments=0) -> dict:
+    """The applicant's ability to repay, from the financial assessment figures."""
+    business_net = float(business_income) - float(business_expenses)
+    total_income = float(monthly_income) + float(other_income) + business_net
+    disposable = total_income - float(monthly_expenses) - float(existing_repayments)
+    return {
+        "total_income": round(total_income, 2),
+        "business_net": round(business_net, 2),
+        "disposable": round(disposable, 2),
+        "max_instalment": round(max(disposable, 0) * CAPACITY_SHARE, 2),
+    }
+
+
 def _required_role(product, amount: float) -> str:
     for level in product.approval_levels.all():
         min_amount = float(level.min_amount)
@@ -46,12 +64,16 @@ def assess(
     declared_income: float,
     declared_expenses: float,
     has_duplicate_national_id: bool,
+    external_repayments: float | None = None,
+    dependents: int = 0,
+    application=None,
 ) -> Assessment:
-    disposable = declared_income - declared_expenses
-    affordability_pass = disposable > 0 and amount / max(term_instalments, 1) < disposable * 0.6
+    disposable = declared_income - declared_expenses - (external_repayments or 0)
+    affordability_pass = disposable > 0 and amount / max(term_instalments, 1) < disposable * CAPACITY_SHARE
     risk = risk_profile(
         product=product, borrower=borrower, amount=amount, term_instalments=term_instalments,
         income=declared_income, expenses=declared_expenses, has_duplicate_national_id=has_duplicate_national_id,
+        external_repayments=external_repayments, dependents=dependents, application=application,
     )
     score = round((disposable / max(declared_income, 1)) * 100)
     score += min(risk["completed_loans"] * 5, 15)
@@ -78,7 +100,8 @@ def assess(
     )
 
 
-def risk_profile(*, product, borrower, amount, term_instalments, income, expenses, has_duplicate_national_id=False) -> dict:
+def risk_profile(*, product, borrower, amount, term_instalments, income, expenses, has_duplicate_national_id=False,
+                 external_repayments=None, dependents=0, application=None) -> dict:
     """Indicators an approver should see before deciding. The system flags
     concerns for additional review — it never decides on its own."""
     loans = list(Loan.objects.filter(borrower=borrower).prefetch_related("schedule")) if borrower.pk else []
@@ -91,8 +114,9 @@ def risk_profile(*, product, borrower, amount, term_instalments, income, expense
         return 0.0
 
     internal_repayments = sum(next_due(l) for l in active)
-    external_repayments = float(getattr(borrower, "existing_loan_payments", 0) or 0)
-    existing_repayments = internal_repayments + external_repayments
+    if external_repayments is None:
+        external_repayments = float(getattr(borrower, "existing_loan_payments", 0) or 0)
+    existing_repayments = internal_repayments + float(external_repayments)
     try:
         new_instalment = float(generate_schedule(product, amount, term_instalments, timezone.now())[0].total_due)
     except Exception:  # pragma: no cover - malformed product
@@ -124,10 +148,19 @@ def risk_profile(*, product, borrower, amount, term_instalments, income, expense
         flags.append(f"Loan is {lti:.1f}× monthly income")
     if active:
         flags.append(f"Already has {len(active)} active loan(s)")
-    if "guarantors" in (product.security_required or []) and not borrower.guarantors.exists():
-        flags.append("Product requires a guarantor — none recorded")
-    if "collateral" in (product.security_required or []) and not borrower.collateral.exclude(status="released").exists():
-        flags.append("Product requires collateral — none recorded")
+    security = product.security_required or []
+    if application is not None and application.pk:
+        has_guarantor = application.guarantors.exists()
+        has_collateral = application.collateral.exists()
+    else:
+        has_guarantor = borrower.guarantors.exists()
+        has_collateral = borrower.collateral.exclude(status="released").exists()
+    if "guarantors" in security and not has_guarantor:
+        flags.append("Product requires a guarantor — none attached")
+    if "collateral" in security and not has_collateral:
+        flags.append("Product requires collateral — none attached")
+    if dependents >= 6 and disposable_after < income * 0.1:
+        flags.append(f"Large household ({dependents} dependents) with little left after repayment")
     if not getattr(borrower, "verified", True):
         flags.append("Borrower profile not yet verified")
     if has_duplicate_national_id:

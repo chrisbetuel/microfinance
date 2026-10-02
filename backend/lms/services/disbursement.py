@@ -6,7 +6,7 @@ from __future__ import annotations
 from django.db import transaction
 
 from lms.enums import ApplicationStatus
-from lms.models import Collateral, Loan, LoanProduct
+from lms.models import ApplicationEvent, Collateral, Loan, LoanProduct
 from lms.services import audit, notify
 from lms.services import loans as loan_service
 from lms.services.loan_math import total_fee_amount
@@ -49,8 +49,18 @@ def disburse(staff, application, channel: str, reference: str) -> Loan:
         )
         application.status = ApplicationStatus.DISBURSED
         application.save(update_fields=["status"])
-        Collateral.objects.filter(borrower=application.borrower, status=Collateral.Status.PLEDGED, loan__isnull=True) \
-            .update(loan=loan, status=Collateral.Status.ACTIVE)
+        pledged = application.collateral.filter(loan__isnull=True)
+        if not pledged.exists():  # nothing linked on the application: secure with what the borrower pledged
+            pledged = Collateral.objects.filter(
+                borrower=application.borrower, status=Collateral.Status.PLEDGED, loan__isnull=True
+            )
+        Collateral.objects.filter(pk__in=list(pledged.values_list("pk", flat=True))).update(
+            loan=loan, status=Collateral.Status.ACTIVE
+        )
+        ApplicationEvent.objects.create(
+            application=application, stage=ApplicationStatus.DISBURSED, by=staff.name,
+            label=f"Disbursed via {channel.replace('_', ' ')}", note=f"Reference {reference}",
+        )
         audit.record(
             staff, "disbursed", "loan", loan.id,
             f"{loan.net_disbursed:,.0f} disbursed via {channel} (ref {reference})",

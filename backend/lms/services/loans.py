@@ -24,7 +24,7 @@ def create_loan_from_application(
 ) -> Loan:
     amount = float(application.amount)
     now = disbursed_on or timezone.now()
-    rows = generate_schedule(product, amount, application.term_instalments, now)
+    rows = generate_schedule(product, amount, application.term_instalments, now, application.first_repayment_date)
     fees_deducted = total_fee_amount(product, amount, "deducted")
     savings_deducted = round(amount * float(product.compulsory_savings_percent) / 100, 2)
 

@@ -85,7 +85,7 @@ export interface Guarantor {
   consentDate: string | null
 }
 
-export type GuarantorInput = Omit<Guarantor, 'id' | 'consentDate'> & { consentDate?: string | null }
+export type GuarantorInput = Omit<Guarantor, 'id' | 'consentDate'> & { id?: string; consentDate?: string | null }
 
 export interface BorrowerDocument {
   id: string
@@ -223,6 +223,7 @@ export interface LoanProduct {
 export type ApplicationStatus =
   | 'draft'
   | 'submitted'
+  | 'under_assessment'
   | 'pending_approval'
   | 'approved'
   | 'declined'
@@ -233,7 +234,7 @@ export interface ApprovalDecision {
   approverId: string
   approverName: string
   role: StaffRole
-  decision: 'approved' | 'declined'
+  decision: 'approved' | 'declined' | 'returned'
   date: string
   comment: string
 }
@@ -264,6 +265,79 @@ export interface Application {
   declineReason: string | null
   risk: ApplicationRisk
   needsReview: boolean
+  requestedAmount: number
+  requestedTerm: number
+  loanOfficerId: string | null
+  applicationDate: string
+  disbursementMethod: DisbursementChannel | ''
+  firstRepaymentDate: string | null
+  groupMemberIds: string[]
+  guarantorIds: string[]
+  collateralIds: string[]
+  otherIncome: number
+  businessIncome: number
+  businessExpenses: number
+  existingLoansCount: number
+  existingRepayments: number
+  dependents: number
+  capacity: { totalIncome: number; businessNet: number; disposable: number; maxInstalment: number }
+  assessmentResult: AssessmentResult | ''
+  assessedAmount: number | null
+  recommendedTerm: number | null
+  assessmentNotes: string
+  assessedById: string | null
+  assessedAt: string | null
+  documents: ApplicationDocument[]
+  events: ApplicationEvent[]
+}
+
+export type AssessmentResult = 'recommended' | 'further_review' | 'not_recommended'
+
+export interface ApplicationDocument {
+  id: string
+  type: string
+  name: string
+  status: 'pending' | 'verified' | 'rejected'
+  note: string
+  verifiedBy: string
+  verifiedAt: string | null
+  uploadedBy: string
+  uploadedAt: string
+}
+
+export interface ApplicationEvent {
+  id: string
+  stage: ApplicationStatus
+  label: string
+  note: string
+  by: string
+  at: string
+}
+
+/** Fields captured by the application form (create and edit). */
+export interface ApplicationInput {
+  borrowerId: string
+  productId: string
+  branchId?: string
+  groupId: string | null
+  amount: number
+  termInstalments: number
+  purpose: string
+  declaredIncome: number
+  declaredExpenses: number
+  creditBureauConsent: boolean
+  loanOfficerId: string | null
+  disbursementMethod: DisbursementChannel | ''
+  firstRepaymentDate: string | null
+  groupMemberIds: string[]
+  guarantorIds: string[]
+  collateralIds: string[]
+  otherIncome: number
+  businessIncome: number
+  businessExpenses: number
+  existingLoansCount: number
+  existingRepayments: number
+  dependents: number
 }
 
 export interface ApplicationRisk {
@@ -295,6 +369,9 @@ export interface Collateral {
   ownerName: string
   ownershipDocument: string
   valuationDate: string | null
+  valuedBy: string
+  existingClaims: string
+  documents: string[]
   status: CollateralStatus
   createdBy: string
   createdAt: string

@@ -126,3 +126,23 @@ def borrower_payload(branch_id, **overrides) -> dict:
     }
     base.update(overrides)
     return base
+
+
+def forward_for_approval(application_id) -> None:
+    """Stand-in for the loan officer's assessment, for tests about approval and
+    what follows it: moves an application still with the officer to the approver
+    as recommended on its requested terms. No-op once it is past assessment."""
+    from django.utils import timezone
+
+    from lms.models import Application
+
+    app = Application.objects.get(pk=application_id)
+    if app.status not in ("draft", "submitted", "under_assessment"):
+        return
+    app.status = "pending_approval"
+    app.assessment_result = "recommended"
+    app.assessed_amount = app.amount
+    app.recommended_term = app.term_instalments
+    app.assessed_by_id = app.created_by_id
+    app.assessed_at = timezone.now()
+    app.save()
