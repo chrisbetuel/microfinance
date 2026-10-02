@@ -5,66 +5,48 @@ then handed to the configured delivery backend. In dev the backend just prints;
 in production point `LMS_NOTIFICATIONS_BACKEND` at a real gateway integration.
 """
 
-import logging
-
 from django.conf import settings
 from django.utils import timezone
 
+from lms.integrations import sms
 from lms.models import Notification
 
-log = logging.getLogger("lms.notifications")
 
-
-def _console(notification: Notification) -> None:
-    print(f"[notify:{notification.channel}] -> {notification.to}: {notification.body}")
-
-
-def _logging(notification: Notification) -> None:
-    log.info("notify %s -> %s: %s", notification.channel, notification.to, notification.body)
-
-
-def _noop(notification: Notification) -> None:
-    return None
-
-
-_BACKENDS = {"console": _console, "logging": _logging, "noop": _noop}
-
-
-def _deliver(notification: Notification) -> None:
-    backend = _BACKENDS.get(getattr(settings, "LMS_NOTIFICATIONS_BACKEND", "console"), _console)
-    backend(notification)
-
-
-def send(lender, *, to: str, kind: str, body: str, borrower=None, channel: str = Notification.Channel.SMS) -> Notification:
+def send(
+    lender, *, to: str, kind: str, body: str, borrower=None, channel: str = Notification.Channel.SMS,
+    sent_by: str = "System", batch: str = "",
+) -> Notification:
+    parts = sms.segments(body)
     notification = Notification.objects.create(
-        lender=lender, borrower=borrower, channel=channel, to=to or "", kind=kind, body=body
+        lender=lender, borrower=borrower, channel=channel, to=to or "", kind=kind, body=body,
+        segments=parts, sent_by=sent_by, batch=batch,
     )
     if not to:
-        notification.status = Notification.Status.FAILED
-        notification.error = "no destination address"
-        notification.save(update_fields=["status", "error"])
-        return notification
-
-    if channel == Notification.Channel.SMS and lender.sms_balance <= 0:
-        notification.status = Notification.Status.FAILED
-        notification.error = "SMS balance exhausted"
-        notification.save(update_fields=["status", "error"])
-        return notification
+        return _fail(notification, "no destination address")
+    if channel == Notification.Channel.SMS and lender.sms_balance < parts:
+        return _fail(notification, "SMS balance exhausted")
 
     try:
-        _deliver(notification)
-    except Exception as exc:  # pragma: no cover - backend-specific
-        notification.status = Notification.Status.FAILED
-        notification.error = str(exc)[:250]
-        notification.save(update_fields=["status", "error"])
-        return notification
+        result = sms.get_provider().send(to, body, sender_id=lender.sms_sender_name or settings.LMS_SMS_SENDER_ID)
+    except Exception as exc:  # pragma: no cover - provider-specific
+        return _fail(notification, str(exc)[:250])
+    if not result.ok:
+        return _fail(notification, result.error[:250] or "rejected by SMS gateway")
 
     notification.status = Notification.Status.SENT
     notification.sent_at = timezone.now()
-    notification.save(update_fields=["status", "sent_at"])
+    notification.provider_ref = result.provider_ref[:100]
+    notification.save(update_fields=["status", "sent_at", "provider_ref"])
     if channel == Notification.Channel.SMS:
-        lender.sms_balance = max(lender.sms_balance - 1, 0)
+        lender.sms_balance = max(lender.sms_balance - parts, 0)
         lender.save(update_fields=["sms_balance"])
+    return notification
+
+
+def _fail(notification: Notification, error: str) -> Notification:
+    notification.status = Notification.Status.FAILED
+    notification.error = error
+    notification.save(update_fields=["status", "error"])
     return notification
 
 

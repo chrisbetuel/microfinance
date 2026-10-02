@@ -534,6 +534,45 @@ class Collateral(models.Model):
         ordering = ["-created_at"]
 
 
+class PaymentTransaction(models.Model):
+    """A mobile-money / online payment through the gateway. Inbound = customer
+    paying a loan instalment; outbound = disbursing a loan to the customer.
+    Settled asynchronously by the gateway callback."""
+
+    class Direction(models.TextChoices):
+        INBOUND = "inbound"
+        OUTBOUND = "outbound"
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        SUCCESS = "success"
+        FAILED = "failed"
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="payment_transactions")
+    reference = models.CharField(max_length=30, db_index=True)  # our id, sent to the gateway
+    direction = models.CharField(max_length=10, choices=Direction.choices)
+    network = models.CharField(max_length=20)  # mpesa | tigopesa | airtel | halopesa | bank
+    provider = models.CharField(max_length=30)
+    provider_ref = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    phone = models.CharField(max_length=50)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    borrower = models.ForeignKey(Borrower, on_delete=models.PROTECT, related_name="+")
+    loan = models.ForeignKey("Loan", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    application = models.ForeignKey(Application, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    repayment = models.ForeignKey("Repayment", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    failure_reason = models.CharField(max_length=250, blank=True, default="")
+    receipt = models.CharField(max_length=100, blank=True, default="")  # network receipt, e.g. M-Pesa code
+    initiated_by = models.ForeignKey(Staff, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    callback_payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
 class TillReconciliation(models.Model):
     """A cashier's end-of-day count of the physical cash drawer."""
 
@@ -613,6 +652,10 @@ class Notification(models.Model):
     body = models.TextField()
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.QUEUED)
     error = models.CharField(max_length=250, blank=True, default="")
+    segments = models.IntegerField(default=1)
+    provider_ref = models.CharField(max_length=100, blank=True, default="")
+    sent_by = models.CharField(max_length=150, blank=True, default="System")
+    batch = models.CharField(max_length=40, blank=True, default="")  # groups a bulk send
     created_at = models.DateTimeField(default=timezone.now)
     sent_at = models.DateTimeField(null=True, blank=True)
 

@@ -65,6 +65,15 @@ urlpatterns = [
     path("audit", v.AuditView.as_view()),
     path("notifications", v.NotificationsView.as_view()),
 
+    path("integrations", v.IntegrationsView.as_view()),
+    path("sms/send", v.SmsSendView.as_view()),
+    path("sms/bulk", v.SmsBulkView.as_view()),
+    path("payments", v.PaymentsView.as_view()),
+    path("payments/collect", v.PaymentCollectView.as_view()),
+    path("payments/payout", v.PaymentPayoutView.as_view()),
+    path("payments/callback", v.PaymentCallbackView.as_view()),
+    path("payments/<uuid:payment_id>/simulate", v.PaymentSimulateView.as_view()),
+
     path("export/borrowers", v.BorrowersExportView.as_view()),
     path("export/loans", v.LoansExportView.as_view()),
     path("export/repayments", v.RepaymentsExportView.as_view()),

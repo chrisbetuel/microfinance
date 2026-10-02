@@ -507,7 +507,10 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Notification
-        fields = ["id", "lender_id", "borrower_id", "channel", "to", "kind", "body", "status", "error", "created_at", "sent_at"]
+        fields = [
+            "id", "lender_id", "borrower_id", "channel", "to", "kind", "body", "status", "error",
+            "segments", "provider_ref", "sent_by", "batch", "created_at", "sent_at",
+        ]
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -636,3 +639,70 @@ class CollectionActivityCreateSerializer(serializers.Serializer):
         if data["kind"] == "promise" and not data.get("promised_amount"):
             raise serializers.ValidationError("A promise needs a promised amount")
         return data
+
+
+# ---------------------------------------------------------------- sms & payments
+
+class SmsSendSerializer(serializers.Serializer):
+    borrower_id = serializers.UUIDField(required=False, allow_null=True)
+    to = serializers.CharField(required=False, allow_blank=True, default="")
+    message = serializers.CharField(max_length=918)  # 6 SMS parts
+
+    def validate(self, data):
+        if not data.get("borrower_id") and not data.get("to"):
+            raise serializers.ValidationError("Choose a borrower or enter a phone number")
+        return data
+
+
+class SmsBulkSerializer(serializers.Serializer):
+    audience = serializers.ChoiceField(choices=["all", "active_loans", "overdue", "due_soon", "group", "custom"])
+    message = serializers.CharField(max_length=918)
+    branch_id = serializers.UUIDField(required=False, allow_null=True)
+    group_id = serializers.UUIDField(required=False, allow_null=True)
+    borrower_ids = serializers.ListField(child=serializers.UUIDField(), required=False, default=list)
+    due_within_days = serializers.IntegerField(required=False, default=3, min_value=0, max_value=60)
+    dry_run = serializers.BooleanField(required=False, default=False)
+
+
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+    borrower_id = Uuid()
+    loan_id = Uuid(allow_null=True)
+    application_id = Uuid(allow_null=True)
+    repayment_id = Uuid(allow_null=True)
+    initiated_by_name = serializers.CharField(source="initiated_by.name", read_only=True)
+
+    class Meta:
+        model = models.PaymentTransaction
+        fields = [
+            "id", "reference", "direction", "network", "provider", "provider_ref", "phone", "amount",
+            "borrower_id", "loan_id", "application_id", "repayment_id", "status", "failure_reason",
+            "receipt", "initiated_by_name", "created_at", "completed_at",
+        ]
+
+
+NETWORK_CHOICES = ["mpesa", "tigopesa", "airtel", "halopesa", "bank"]
+
+
+class PaymentCollectSerializer(serializers.Serializer):
+    loan_id = serializers.UUIDField()
+    phone = serializers.CharField()
+    amount = serializers.FloatField(min_value=1)
+    network = serializers.ChoiceField(choices=NETWORK_CHOICES, default="mpesa")
+
+
+class PaymentPayoutSerializer(serializers.Serializer):
+    application_id = serializers.UUIDField()
+    phone = serializers.CharField()
+    network = serializers.ChoiceField(choices=NETWORK_CHOICES, default="mpesa")
+
+
+class PaymentCallbackSerializer(serializers.Serializer):
+    reference = serializers.CharField(required=False, allow_blank=True, default="")
+    provider_ref = serializers.CharField(required=False, allow_blank=True, default="")
+    status = serializers.ChoiceField(choices=["success", "failed"])
+    receipt = serializers.CharField(required=False, allow_blank=True, default="")
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class PaymentSimulateSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(choices=["success", "failed"])

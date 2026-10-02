@@ -22,6 +22,8 @@ import Reports from './pages/reports/Reports'
 import Collections from './pages/collections/Collections'
 import Groups from './pages/groups/Groups'
 import Profile from './pages/Profile'
+import Messages from './pages/messages/Messages'
+import Payments from './pages/payments/Payments'
 
 function LoadingScreen() {
   return (
@@ -92,6 +94,8 @@ export default function App() {
             <Route path="/disbursement" element={<DisbursementQueue />} />
             <Route path="/repayments" element={<Repayments />} />
             <Route path="/collections" element={<Collections />} />
+            <Route path="/messages" element={<Messages />} />
+            <Route path="/payments" element={<Payments />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/security" element={<SecurityAudit />} />
           </Route>

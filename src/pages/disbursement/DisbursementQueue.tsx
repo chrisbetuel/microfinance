@@ -13,6 +13,7 @@ import { formatDateTime, formatMoney } from '../../lib/format'
 import { totalFeeAmount } from '../../lib/loanMath'
 import { useCanEdit } from '../../lib/useCanEdit'
 import { downloadCSV } from '../../lib/csv'
+import { PayoutModal } from '../payments/Payments'
 
 const channelLabels: Record<DisbursementChannel, string> = {
   mobile_money: 'Mobile money',
@@ -46,6 +47,7 @@ export default function DisbursementQueue() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchOpen, setBatchOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [payoutFor, setPayoutFor] = useState<string | null>(null)
 
   const currentStaff = staff.find((s) => s.id === currentStaffId)
 
@@ -148,19 +150,25 @@ export default function DisbursementQueue() {
                   header: '',
                   cell: (a) =>
                     canEdit && (
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setActive(a)
-                          setReference(`REF-${Date.now().toString().slice(-6)}`)
-                        }}
-                      >
-                        Disburse
-                      </Button>
+                      <div className="flex justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setActive(a)
+                            setReference(`REF-${Date.now().toString().slice(-6)}`)
+                          }}
+                        >
+                          Disburse
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => setPayoutFor(a.id)}>
+                          Send via mobile money
+                        </Button>
+                      </div>
                     ),
                 },
               ]}
             />
+            <PayoutModal open={payoutFor !== null} onClose={() => setPayoutFor(null)} applicationId={payoutFor} />
             {canEdit && selectableIds.length > 0 && (
               <button
                 onClick={() => setSelected(allSelected ? new Set() : new Set(selectableIds))}

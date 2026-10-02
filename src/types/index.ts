@@ -440,8 +440,40 @@ export interface Notification {
   body: string
   status: 'queued' | 'sent' | 'failed'
   error: string
+  segments: number
+  providerRef: string
+  sentBy: string
+  batch: string
   createdAt: string
   sentAt: string | null
+}
+
+export type PaymentNetwork = 'mpesa' | 'tigopesa' | 'airtel' | 'halopesa' | 'bank'
+
+export interface PaymentTransaction {
+  id: string
+  reference: string
+  direction: 'inbound' | 'outbound'
+  network: PaymentNetwork
+  provider: string
+  providerRef: string
+  phone: string
+  amount: number
+  borrowerId: string
+  loanId: string | null
+  applicationId: string | null
+  repaymentId: string | null
+  status: 'pending' | 'success' | 'failed'
+  failureReason: string
+  receipt: string
+  initiatedByName: string
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface Integrations {
+  sms: { provider: string; simulated: boolean }
+  payments: { provider: string; simulated: boolean; networks: Record<PaymentNetwork, string> }
 }
 
 export type CollectionActivityKind = 'call' | 'visit' | 'message' | 'note' | 'promise' | 'escalation'

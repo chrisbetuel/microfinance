@@ -28,6 +28,7 @@ from lms.models import (
     Loan,
     LoanProduct,
     Notification,
+    PaymentTransaction,
     Repayment,
     SavingsAccount,
     SavingsTransaction,
@@ -90,6 +91,7 @@ class Command(BaseCommand):
         Loan.objects.filter(lender=lender).delete()
         CollectionActivity.objects.filter(lender=lender).delete()
         Collateral.objects.filter(lender=lender).delete()
+        PaymentTransaction.objects.filter(lender=lender).delete()
         SavingsTransaction.objects.filter(account__lender=lender).delete()
         SavingsAccount.objects.filter(lender=lender).delete()
         TillReconciliation.objects.filter(lender=lender).delete()

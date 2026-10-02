@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import transaction
 from django.http import HttpResponse
 from django.utils import timezone
@@ -28,6 +30,7 @@ from lms.models import (
     Lender,
     Loan,
     LoanProduct,
+    PaymentTransaction,
     ProductFee,
     Repayment,
     SavingsAccount,
@@ -48,6 +51,8 @@ from lms.services import applications as application_service
 from lms.services import (
     audit,
     collections as collections_service,
+    disbursement as disbursement_service,
+    gateway as gateway_service,
     loans as loan_service,
     notify,
     restructure as restructure_service,
@@ -756,40 +761,11 @@ class ApplicationDecisionView(APIView):
         return Response(ser.ApplicationSerializer(application_qs(request.user.lender).get(pk=application_id)).data)
 
 
-class DisburseError(Exception):
-    """Raised by _disburse_one when an application can't be released."""
+DisburseError = disbursement_service.DisburseError
 
 
 def _disburse_one(request_user, application, channel, reference):
-    lender = request_user.lender
-    if application.status != ApplicationStatus.APPROVED:
-        raise DisburseError("Only an approved application can be disbursed")
-    if Loan.objects.filter(application=application).exists():
-        raise DisburseError("This application has already been disbursed")
-
-    product = product_qs(lender).filter(pk=application.product_id).first()
-    last = application.approvals.all().last()
-    approver = last.approver_name if last else "Unknown"
-    if approver == request_user.name:
-        raise DisburseError("The approver and the person releasing funds must be different people")
-    if application.created_by_id == request_user.id:
-        raise DisburseError("You created this application — a different person must release the funds")
-
-    with transaction.atomic():
-        loan = loan_service.create_loan_from_application(
-            application=application, product=product, channel=channel, reference=reference,
-            approved_by=approver, disbursed_by=request_user.name,
-        )
-        application.status = ApplicationStatus.DISBURSED
-        application.save(update_fields=["status"])
-        Collateral.objects.filter(borrower=application.borrower, status=Collateral.Status.PLEDGED, loan__isnull=True) \
-            .update(loan=loan, status=Collateral.Status.ACTIVE)
-        audit.record(
-            request_user, "disbursed", "loan", loan.id,
-            f"{loan.net_disbursed:,.0f} disbursed via {channel} (ref {reference})",
-        )
-    notify.disbursed(lender, application.borrower, loan)
-    return loan
+    return disbursement_service.disburse(request_user, application, channel, reference)
 
 
 class ApplicationDisburseView(APIView):
@@ -1443,3 +1419,239 @@ class BorrowerStepUpView(APIView):
                 else "Borrower has active arrears or insufficient clean loan history"
             ),
         })
+
+
+# ------------------------------------------------------------------ sms messaging
+
+def _message_context(lender, borrower) -> dict:
+    """Values for {placeholders} in a message, from the borrower's active loan."""
+    loan = (
+        Loan.objects.filter(borrower=borrower, status=LoanStatus.ACTIVE)
+        .prefetch_related("schedule").order_by("-days_in_arrears").first()
+    )
+    amount_due, due_date, outstanding = 0.0, "", 0.0
+    if loan:
+        outstanding = float(loan.outstanding_balance)
+        nxt = next((i for i in loan.schedule.all() if i.status != "paid"), None)
+        if loan.days_in_arrears > 0:
+            amount_due = float(loan.arrears_amount)
+        elif nxt is not None:
+            amount_due = float(nxt.total_due) - float(nxt.paid_amount)
+        if nxt is not None:
+            due_date = f"{nxt.due_date:%d %b %Y}"
+
+    def money(v):
+        return f"{lender.currency} {round(v):,}"
+
+    return {
+        "name": borrower.full_name,
+        "first_name": borrower.full_name.split()[0] if borrower.full_name else "",
+        "customer_number": borrower.customer_number,
+        "amount_due": money(amount_due),
+        "due_date": due_date or "-",
+        "outstanding": money(outstanding),
+        "lender": lender.name,
+    }
+
+
+def _render(template: str, ctx: dict) -> str:
+    out = template
+    for k, v in ctx.items():
+        out = out.replace("{" + k + "}", str(v))
+    return out
+
+
+def _audience(lender, data) -> list:
+    qs = Borrower.objects.filter(lender=lender).exclude(status=Borrower.Status.BLACKLISTED)
+    if data.get("branch_id"):
+        qs = qs.filter(branch_id=data["branch_id"])
+    aud = data["audience"]
+    if aud == "custom":
+        qs = qs.filter(pk__in=data.get("borrower_ids") or [])
+    elif aud == "group":
+        qs = qs.filter(group_memberships__group_id=data.get("group_id"), group_memberships__active=True)
+    elif aud == "active_loans":
+        qs = qs.filter(loans__status=LoanStatus.ACTIVE)
+    elif aud == "overdue":
+        qs = qs.filter(loans__status=LoanStatus.ACTIVE, loans__days_in_arrears__gt=0)
+    elif aud == "due_soon":
+        today = timezone.localdate()
+        horizon = today + timedelta(days=data.get("due_within_days", 3))
+        qs = qs.filter(
+            loans__status=LoanStatus.ACTIVE, loans__days_in_arrears=0,
+            loans__schedule__due_date__gte=today, loans__schedule__due_date__lte=horizon,
+            loans__schedule__status__in=["upcoming", "due", "partial"],
+        )
+    else:  # all
+        qs = qs.filter(status=Borrower.Status.ACTIVE)
+    return list(qs.distinct())
+
+
+class SmsSendView(APIView):
+    """Send one SMS — to a borrower (placeholders filled from their loan) or any number."""
+
+    permission_classes = [IsAuthenticated, section_editor("collections")]
+
+    def post(self, request):
+        lender = request.user.lender
+        data = validated(ser.SmsSendSerializer, request.data)
+        borrower = None
+        if data.get("borrower_id"):
+            borrower = Borrower.objects.filter(pk=data["borrower_id"], lender=lender).first()
+            if borrower is None:
+                raise NotFound("Borrower not found")
+        body = _render(data["message"], _message_context(lender, borrower)) if borrower else data["message"]
+        to = data.get("to") or (borrower.phone if borrower else "")
+        n = notify.send(lender, to=to, kind="manual", body=body, borrower=borrower, sent_by=request.user.name)
+        audit.record(request.user, "sms", "notification", n.id, f"SMS to {to}: {n.status}")
+        return Response(ser.NotificationSerializer(n).data, status=status.HTTP_201_CREATED)
+
+
+class SmsBulkView(APIView):
+    """Send the same (personalised) SMS to an audience. dryRun previews it."""
+
+    permission_classes = [IsAuthenticated, section_editor("collections")]
+
+    def post(self, request):
+        import uuid as _uuid
+
+        from lms.integrations import sms as sms_integration
+
+        lender = request.user.lender
+        data = validated(ser.SmsBulkSerializer, request.data)
+        recipients = _audience(lender, data)
+        rendered = [(b, _render(data["message"], _message_context(lender, b))) for b in recipients]
+        segments = sum(sms_integration.segments(body) for _, body in rendered)
+
+        if data["dry_run"]:
+            return Response({
+                "recipients": len(rendered),
+                "segments": segments,
+                "credits_available": lender.sms_balance,
+                "sample": [{"borrower_id": str(b.id), "name": b.full_name, "phone": b.phone, "body": body}
+                           for b, body in rendered[:5]],
+            })
+        if not rendered:
+            raise UnprocessableEntity("No borrowers match this audience")
+        if segments > lender.sms_balance:
+            raise UnprocessableEntity(f"This send needs {segments} SMS credits - only {lender.sms_balance} left")
+
+        batch = f"BULK-{_uuid.uuid4().hex[:8].upper()}"
+        sent = failed = 0
+        for b, body in rendered:
+            n = notify.send(lender, to=b.phone, kind="bulk", body=body, borrower=b,
+                            sent_by=request.user.name, batch=batch)
+            lender.refresh_from_db(fields=["sms_balance"])
+            if n.status == "sent":
+                sent += 1
+            else:
+                failed += 1
+        audit.record(request.user, "sms_bulk", "notification", batch,
+                     f"Bulk SMS ({data['audience']}) to {len(rendered)} borrowers: {sent} sent, {failed} failed")
+        return Response({"batch": batch, "recipients": len(rendered), "sent": sent, "failed": failed},
+                        status=status.HTTP_201_CREATED)
+
+
+# ------------------------------------------------------------------ online payments
+
+class IntegrationsView(APIView):
+    def get(self, request):
+        from lms.integrations import payments as pay_integration
+        from lms.integrations import sms as sms_integration
+
+        s, p = sms_integration.get_provider(), pay_integration.get_provider()
+        return Response({
+            "sms": {"provider": s.name, "simulated": s.simulated},
+            "payments": {"provider": p.name, "simulated": p.simulated, "networks": gateway_service.NETWORKS},
+        })
+
+
+class PaymentsView(APIView):
+    permission_classes = [IsAuthenticated, has_section("repayments")]
+
+    def get(self, request):
+        rows = PaymentTransaction.objects.filter(lender=request.user.lender).select_related("initiated_by")[:500]
+        return Response(ser.PaymentTransactionSerializer(rows, many=True).data)
+
+
+class PaymentCollectView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def post(self, request):
+        data = validated(ser.PaymentCollectSerializer, request.data)
+        loan = Loan.objects.filter(pk=data["loan_id"], lender=request.user.lender).select_related("borrower").first()
+        if loan is None:
+            raise NotFound("Loan not found")
+        try:
+            tx = gateway_service.start_collection(
+                staff=request.user, loan=loan, phone=data["phone"], amount=data["amount"], network=data["network"],
+            )
+        except gateway_service.GatewayError as exc:
+            raise UnprocessableEntity(str(exc))
+        return Response(ser.PaymentTransactionSerializer(tx).data, status=status.HTTP_201_CREATED)
+
+
+class PaymentPayoutView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("disbursement")]
+
+    def post(self, request):
+        data = validated(ser.PaymentPayoutSerializer, request.data)
+        app = application_qs(request.user.lender).filter(pk=data["application_id"]).select_related("borrower").first()
+        if app is None:
+            raise NotFound("Application not found")
+        try:
+            tx = gateway_service.start_payout(staff=request.user, application=app, phone=data["phone"], network=data["network"])
+        except disbursement_service.DisburseError as exc:
+            msg = str(exc)
+            raise PermissionDenied(msg) if "different" in msg else Conflict(msg)
+        except gateway_service.GatewayError as exc:
+            raise Conflict(str(exc))
+        return Response(ser.PaymentTransactionSerializer(tx).data, status=status.HTTP_201_CREATED)
+
+
+class PaymentCallbackView(APIView):
+    """Webhook for the payment gateway. Authenticated by a shared secret header,
+    not a staff login. Idempotent."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        from django.conf import settings as dj_settings
+
+        if request.headers.get("X-Webhook-Token") != dj_settings.LMS_PAYMENT_WEBHOOK_SECRET:
+            raise PermissionDenied("Invalid webhook token")
+        data = validated(ser.PaymentCallbackSerializer, request.data)
+        qs = PaymentTransaction.objects.all()
+        tx = None
+        if data["provider_ref"]:
+            tx = qs.filter(provider_ref=data["provider_ref"]).first()
+        if tx is None and data["reference"]:
+            tx = qs.filter(reference=data["reference"]).first()
+        if tx is None:
+            raise NotFound("Unknown transaction")
+        tx = gateway_service.settle(tx, success=data["status"] == "success", receipt=data["receipt"],
+                                    reason=data["reason"], payload=dict(request.data))
+        return Response({"reference": tx.reference, "status": tx.status})
+
+
+class PaymentSimulateView(APIView):
+    """Mock gateway only: stand in for the customer approving/declining."""
+
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def post(self, request, payment_id):
+        import secrets
+
+        from lms.integrations import payments as pay_integration
+
+        if not pay_integration.get_provider().simulated:
+            raise PermissionDenied("Simulation is only available with the mock gateway")
+        tx = PaymentTransaction.objects.filter(pk=payment_id, lender=request.user.lender).first()
+        if tx is None:
+            raise NotFound("Payment not found")
+        outcome = validated(ser.PaymentSimulateSerializer, request.data)["outcome"]
+        receipt = ("SIM" + secrets.token_hex(4)).upper() if outcome == "success" else ""
+        tx = gateway_service.settle(tx, success=outcome == "success", receipt=receipt,
+                                    reason="Customer declined (simulated)", payload={"simulated": True})
+        return Response(ser.PaymentTransactionSerializer(tx).data)

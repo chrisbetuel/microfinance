@@ -14,6 +14,7 @@ import { useCanEdit } from '../../lib/useCanEdit'
 import { isSupervisor } from '../../lib/permissions'
 import { BorrowerSavings } from './BorrowerSavings'
 import { StatusBadge } from './StatusBadge'
+import { RequestPaymentModal } from '../payments/Payments'
 import { AlsoGuarantees, CollateralTab, GuaranteesGiven, LoanHistory, TransactionLedger, loanStatusLabel } from './BorrowerExtras'
 import type { ApplicationStatus, BorrowerStatus, DisbursementChannel, Loan, Repayment } from '../../types'
 
@@ -72,6 +73,7 @@ export default function BorrowerDetail() {
   const [statusTo, setStatusTo] = useState<BorrowerStatus | null>(null)
   const [reason, setReason] = useState('')
   const [verifyOpen, setVerifyOpen] = useState(false)
+  const [payFor, setPayFor] = useState<string | null>(null)
   const [checks, setChecks] = useState({ nida: false, phone: false, docs: false })
   const [settleFor, setSettleFor] = useState<Loan | null>(null)
   const [settleChannel, setSettleChannel] = useState<Repayment['channel']>('mobile_money')
@@ -104,6 +106,9 @@ export default function BorrowerDetail() {
             <div className="flex gap-2">
               <Button variant="secondary" icon={<Pencil size={15} />} onClick={() => navigate(`/borrowers/${borrower.id}/edit`)}>
                 Edit profile
+              </Button>
+              <Button variant="secondary" onClick={() => navigate(`/messages?borrower=${borrower.id}`)}>
+                Send SMS
               </Button>
               {borrower.verified ? (
                 <Button variant="secondary" onClick={() => void verifyBorrower(borrower.id, false, false)}>Remove verification</Button>
@@ -326,6 +331,9 @@ export default function BorrowerDetail() {
 
                   {loan.status === 'active' && canEdit && (
                     <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
+                      <Button size="sm" onClick={() => setPayFor(loan.id)}>
+                        Request mobile payment
+                      </Button>
                       <Button
                         size="sm"
                         variant="secondary"
@@ -433,6 +441,8 @@ export default function BorrowerDetail() {
           </Card>
         )}
       </div>
+
+      {payFor && <RequestPaymentModal open onClose={() => setPayFor(null)} loanId={payFor} />}
 
       <Modal open={verifyOpen} onClose={() => setVerifyOpen(false)} title="Verify borrower profile">
         <div className="space-y-3 text-sm">

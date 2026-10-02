@@ -7,6 +7,9 @@ import type {
   BorrowerProfile,
   BorrowerStatus,
   Collateral,
+  Integrations,
+  PaymentNetwork,
+  PaymentTransaction,
   GuarantorInput,
   Branch,
   CollectionActivity,
@@ -26,6 +29,16 @@ import type {
 import { api, ApiError, getToken, setToken } from '../lib/api'
 import { toast } from '../lib/toast'
 import { cachedTimeoutMinutes, clearActivity, idleMs, markActivity } from '../lib/session'
+
+export interface BulkSmsInput {
+  audience: 'all' | 'active_loans' | 'overdue' | 'due_soon' | 'group' | 'custom'
+  message: string
+  branchId?: string | null
+  groupId?: string | null
+  borrowerIds?: string[]
+  dueWithinDays?: number
+  dryRun?: boolean
+}
 
 export interface CurrentUser {
   id: string
@@ -82,6 +95,8 @@ interface StoreState {
   collectionActivities: CollectionActivity[]
   groups: BorrowerGroup[]
   collateral: Collateral[]
+  payments: PaymentTransaction[]
+  integrations: Integrations | null
 
   bootstrap: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
@@ -111,6 +126,12 @@ interface StoreState {
     borrowerId: string,
     input: Pick<Collateral, 'assetType' | 'description' | 'estimatedValue' | 'ownerName' | 'ownershipDocument' | 'valuationDate'> & { loanId?: string | null },
   ) => Promise<void>
+  sendSms: (input: { borrowerId?: string; to?: string; message: string }) => Promise<Notification>
+  sendBulkSms: (input: BulkSmsInput) => Promise<{ batch: string; recipients: number; sent: number; failed: number }>
+  refreshPayments: () => Promise<void>
+  requestPayment: (input: { loanId: string; phone: string; amount: number; network: PaymentNetwork }) => Promise<PaymentTransaction>
+  payout: (input: { applicationId: string; phone: string; network: PaymentNetwork }) => Promise<PaymentTransaction>
+  simulatePayment: (id: string, outcome: 'success' | 'failed') => Promise<void>
   updateCollateral: (id: string, patch: Partial<Pick<Collateral, 'status' | 'estimatedValue' | 'valuationDate' | 'loanId'>>) => Promise<void>
   setBorrowerBlacklist: (borrowerId: string, blacklisted: boolean, reason: string | null) => Promise<void>
   uploadBorrowerDocument: (borrowerId: string, name: string, type: string) => Promise<void>
@@ -188,6 +209,8 @@ const EMPTY = {
   collectionActivities: [],
   groups: [],
   collateral: [],
+  payments: [],
+  integrations: null,
 }
 
 export const useStore = create<StoreState>()((set, get) => {
@@ -203,6 +226,14 @@ export const useStore = create<StoreState>()((set, get) => {
       if (!(err instanceof ApiError) || err.status !== 403) throw err
     }
     set({ notifications: await api.get<Notification[]>('/notifications') })
+  }
+
+  async function loadPayments() {
+    const [payments, integrations] = await Promise.all([
+      api.get<PaymentTransaction[]>('/payments').catch(() => [] as PaymentTransaction[]),
+      api.get<Integrations>('/integrations').catch(() => null),
+    ])
+    set({ payments, integrations })
   }
 
   async function hydrate() {
@@ -250,7 +281,7 @@ export const useStore = create<StoreState>()((set, get) => {
       groups,
       collateral,
     })
-    await refreshAudit()
+    await Promise.all([refreshAudit(), loadPayments()])
   }
 
   return {
@@ -384,6 +415,58 @@ export const useStore = create<StoreState>()((set, get) => {
         borrowers: s.borrowers.map((b) => (b.id === borrowerId ? borrower : b)),
       }))
       toast.success('Collateral recorded', created.description)
+      await refreshAudit()
+    },
+
+    sendSms: async (input) => {
+      const n = await api.post<Notification>('/sms/send', input)
+      set((s) => ({ notifications: [n, ...s.notifications] }))
+      const lender = await api.get<Lender>('/lender')
+      set({ lender: normalizeLender(lender) })
+      if (n.status === 'sent') toast.success('SMS sent', n.to)
+      else toast.error('SMS not sent', n.error)
+      return n
+    },
+
+    sendBulkSms: async (input) => {
+      const res = await api.post<{ batch: string; recipients: number; sent: number; failed: number }>('/sms/bulk', input)
+      const [notifications, lender] = await Promise.all([api.get<Notification[]>('/notifications'), api.get<Lender>('/lender')])
+      set({ notifications, lender: normalizeLender(lender) })
+      toast.success(`Bulk SMS: ${res.sent} sent`, res.failed ? `${res.failed} failed` : res.batch)
+      await refreshAudit()
+      return res
+    },
+
+    refreshPayments: async () => {
+      await loadPayments()
+    },
+
+    requestPayment: async (input) => {
+      const tx = await api.post<PaymentTransaction>('/payments/collect', input)
+      set((s) => ({ payments: [tx, ...s.payments] }))
+      if (tx.status === 'failed') toast.error('Payment request failed', tx.failureReason)
+      else toast.success('Payment request sent', `${tx.reference} — waiting for the customer to approve`)
+      return tx
+    },
+
+    payout: async (input) => {
+      const tx = await api.post<PaymentTransaction>('/payments/payout', input)
+      set((s) => ({ payments: [tx, ...s.payments] }))
+      if (tx.status === 'failed') toast.error('Payout failed', tx.failureReason)
+      else toast.success('Payout sent to gateway', `${tx.reference} — the loan opens once the transfer is confirmed`)
+      return tx
+    },
+
+    simulatePayment: async (id, outcome) => {
+      const tx = await api.post<PaymentTransaction>('/payments/' + id + '/simulate', { outcome })
+      const [loans, repayments, applications] = await Promise.all([
+        api.get<Loan[]>('/loans'),
+        api.get<Repayment[]>('/repayments'),
+        api.get<Application[]>('/applications'),
+      ])
+      set((s) => ({ payments: s.payments.map((p) => (p.id === id ? tx : p)), loans, repayments, applications }))
+      if (tx.status === 'success') toast.success(tx.direction === 'inbound' ? 'Payment received' : 'Payout confirmed — loan opened', tx.receipt)
+      else toast.error('Payment failed', tx.failureReason)
       await refreshAudit()
     },
 

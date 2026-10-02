@@ -108,6 +108,15 @@ SPECTACULAR_SETTINGS = {
 # Notification delivery: console | logging | noop  (swap for a real gateway in prod)
 LMS_NOTIFICATIONS_BACKEND = env("LMS_NOTIFICATIONS_BACKEND", "console")
 
+# Integrations — see lms/integrations/. "console"/"mock" work offline; add a real
+# provider class and point these at it to go live.
+LMS_SMS_PROVIDER = env("LMS_SMS_PROVIDER", LMS_NOTIFICATIONS_BACKEND)
+LMS_SMS_SENDER_ID = env("LMS_SMS_SENDER_ID", "")
+LMS_SMS_API_KEY = env("LMS_SMS_API_KEY", "")
+LMS_PAYMENT_PROVIDER = env("LMS_PAYMENT_PROVIDER", "mock")
+LMS_PAYMENT_API_KEY = env("LMS_PAYMENT_API_KEY", "")
+LMS_PAYMENT_WEBHOOK_SECRET = env("LMS_PAYMENT_WEBHOOK_SECRET", "dev-webhook-secret")
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=int(env("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))),
     "AUTH_HEADER_TYPES": ("Bearer",),
