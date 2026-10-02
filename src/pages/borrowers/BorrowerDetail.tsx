@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { ShieldAlert, ShieldCheck, Landmark, Pencil, Upload } from 'lucide-react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { Landmark, Pencil, Upload } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Card, CardHeader } from '../../components/ui/Card'
@@ -13,7 +13,8 @@ import { formatDate, formatDateTime, formatMoney, initials } from '../../lib/for
 import { useCanEdit } from '../../lib/useCanEdit'
 import { isSupervisor } from '../../lib/permissions'
 import { BorrowerSavings } from './BorrowerSavings'
-import type { ApplicationStatus, DisbursementChannel, Loan, Repayment } from '../../types'
+import { StatusBadge } from './StatusBadge'
+import type { ApplicationStatus, BorrowerStatus, DisbursementChannel, Loan, Repayment } from '../../types'
 
 const tabs = [
   { id: 'profile', label: 'Profile' },
@@ -54,8 +55,9 @@ export default function BorrowerDetail() {
     [allApplications, id],
   )
   const products = useStore((s) => s.products)
-  const setBorrowerBlacklist = useStore((s) => s.setBorrowerBlacklist)
-  const updateBorrower = useStore((s) => s.updateBorrower)
+  const setBorrowerStatus = useStore((s) => s.setBorrowerStatus)
+  const allRepayments = useStore((s) => s.repayments)
+  const navigate = useNavigate()
   const uploadBorrowerDocument = useStore((s) => s.uploadBorrowerDocument)
   const settleLoan = useStore((s) => s.settleLoan)
   const writeOffLoan = useStore((s) => s.writeOffLoan)
@@ -63,27 +65,13 @@ export default function BorrowerDetail() {
   const canEdit = useCanEdit()
   const canWriteOff = !!role && isSupervisor(role)
   const [tab, setTab] = useState('profile')
-  const [blOpen, setBlOpen] = useState(false)
+  const [statusTo, setStatusTo] = useState<BorrowerStatus | null>(null)
   const [reason, setReason] = useState('')
   const [settleFor, setSettleFor] = useState<Loan | null>(null)
   const [settleChannel, setSettleChannel] = useState<Repayment['channel']>('mobile_money')
   const [writeOffFor, setWriteOffFor] = useState<Loan | null>(null)
   const [woReason, setWoReason] = useState('')
   const [busy, setBusy] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
-  const [editForm, setEditForm] = useState({
-    fullName: '',
-    phone: '',
-    residence: '',
-    occupation: '',
-    monthlyIncome: 0,
-    nextOfKin: '',
-    businessName: '',
-    registrationNumber: '',
-    taxId: '',
-    sector: '',
-    yearsTrading: 0,
-  })
   const [docOpen, setDocOpen] = useState(false)
   const [docName, setDocName] = useState('')
   const [docType, setDocType] = useState('National ID')
@@ -93,6 +81,12 @@ export default function BorrowerDetail() {
   const branch = branches.find((b) => b.id === borrower.branchId)
   const officer = staff.find((s) => s.id === borrower.officerId)
   const totalExposure = loans.filter((l) => l.status === 'active').reduce((s, l) => s + l.outstandingBalance, 0)
+  const loanIds = new Set(loans.map((l) => l.id))
+  const paidTotal = allRepayments.filter((r) => loanIds.has(r.loanId) && !r.reversed).reduce((s, r) => s + r.amount, 0)
+  const instalments = loans.flatMap((l) => l.schedule)
+  const overdueCount = instalments.filter((i) => i.status === 'overdue').length
+  const dueSoFar = instalments.filter((i) => new Date(i.dueDate) <= new Date())
+  const onTimeRate = dueSoFar.length ? Math.round((dueSoFar.filter((i) => i.status === 'paid').length / dueSoFar.length) * 100) : null
 
   return (
     <div>
@@ -102,33 +96,25 @@ export default function BorrowerDetail() {
         action={
           canEdit && (
             <div className="flex gap-2">
-              <Button variant="secondary" icon={<Pencil size={15} />} onClick={() => {
-                setEditForm({
-                  fullName: borrower.fullName,
-                  phone: borrower.phone,
-                  residence: borrower.residence,
-                  occupation: borrower.occupation,
-                  monthlyIncome: borrower.monthlyIncome,
-                  nextOfKin: borrower.nextOfKin,
-                  businessName: borrower.businessName ?? '',
-                  registrationNumber: borrower.registrationNumber ?? '',
-                  taxId: borrower.taxId ?? '',
-                  sector: borrower.sector ?? '',
-                  yearsTrading: borrower.yearsTrading ?? 0,
-                })
-                setEditOpen(true)
-              }}>
-                Edit
+              <Button variant="secondary" icon={<Pencil size={15} />} onClick={() => navigate(`/borrowers/${borrower.id}/edit`)}>
+                Edit profile
               </Button>
-              {borrower.blacklisted ? (
-                <Button variant="secondary" icon={<ShieldCheck size={15} />} onClick={() => void setBorrowerBlacklist(borrower.id, false, null)}>
-                  Remove from blacklist
-                </Button>
-              ) : (
-                <Button variant="danger" icon={<ShieldAlert size={15} />} onClick={() => setBlOpen(true)}>
-                  Blacklist borrower
-                </Button>
-              )}
+              <select
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700"
+                value={borrower.status}
+                onChange={(e) => {
+                  const next = e.target.value as BorrowerStatus
+                  if (next === borrower.status) return
+                  setReason('')
+                  setStatusTo(next)
+                }}
+                aria-label="Borrower status"
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="suspended">Suspended</option>
+                <option value="blacklisted">Blacklisted</option>
+              </select>
             </div>
           )
         }
@@ -138,7 +124,8 @@ export default function BorrowerDetail() {
         <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700">
           {initials(borrower.fullName)}
         </span>
-        <Badge tone={borrower.blacklisted ? 'red' : 'green'}>{borrower.blacklisted ? 'Blacklisted' : 'Good standing'}</Badge>
+        <span className="font-mono text-sm text-slate-500">{borrower.customerNumber}</span>
+        <StatusBadge status={borrower.status} />
         <Badge tone="slate">Total exposure: {formatMoney(totalExposure)}</Badge>
         <Badge tone="slate" className="capitalize">
           {borrower.type}
@@ -155,21 +142,72 @@ export default function BorrowerDetail() {
 
       <div className="mt-6">
         {tab === 'profile' && (
-          <Card className="max-w-2xl">
-            <CardHeader title="Personal & contact details" />
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-              <Detail label="National ID" value={borrower.nationalId} />
-              <Detail label="Phone" value={borrower.phone} />
-              <Detail label="Residence" value={borrower.residence} />
-              <Detail label="Occupation" value={borrower.occupation} />
-              <Detail label="Monthly income" value={formatMoney(borrower.monthlyIncome)} />
-              <Detail label="Next of kin" value={borrower.nextOfKin} />
-              {borrower.businessName && <Detail label="Business name" value={borrower.businessName} />}
-              {borrower.registrationNumber && <Detail label="Registration number" value={borrower.registrationNumber} />}
-              {borrower.taxId && <Detail label="Tax ID" value={borrower.taxId} />}
-              {borrower.sector && <Detail label="Sector" value={borrower.sector} />}
-            </dl>
-          </Card>
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+              <Stat label="Loans" value={String(loans.length)} />
+              <Stat label="Payments" value={formatMoney(paidTotal)} />
+              <Stat label="Outstanding" value={formatMoney(totalExposure)} />
+              <Stat label="Overdue instalments" value={String(overdueCount)} warn={overdueCount > 0} />
+              <Stat label="Guarantors" value={String(borrower.guarantors.length)} />
+              <Stat label="Documents" value={String(borrower.documents.length)} />
+              <Stat label="On-time repayment" value={onTimeRate === null ? '—' : `${onTimeRate}%`} />
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <ProfileCard title="Personal information" items={[
+                ['Customer number', borrower.customerNumber],
+                ['Date of birth', borrower.dateOfBirth ? formatDate(borrower.dateOfBirth) : ''],
+                ['Gender', cap(borrower.gender)],
+                ['Marital status', cap(borrower.maritalStatus)],
+                ['NIDA / National ID', borrower.nationalId],
+                ['Phone', borrower.phone],
+                ['Alternative phone', borrower.altPhone],
+                ['Email', borrower.email],
+              ]} />
+              <ProfileCard title="Address" items={[
+                ['Region', borrower.region],
+                ['District', borrower.district],
+                ['Ward', borrower.ward],
+                ['Street / village', borrower.street],
+                ['Physical address', borrower.residence],
+                ['Postal address', borrower.postalAddress],
+              ]} />
+              <ProfileCard title="Employment / business" items={
+                borrower.incomeSource === 'employed'
+                  ? [
+                      ['Income source', 'Employed'],
+                      ['Employer', borrower.employerName],
+                      ['Job title', borrower.jobTitle],
+                      ['Employment type', cap(borrower.employmentType.replace('_', ' '))],
+                      ['Years employed', borrower.yearsEmployed?.toString() ?? ''],
+                    ]
+                  : [
+                      ['Income source', borrower.incomeSource === 'business' ? 'Business owner' : cap(borrower.incomeSource) || borrower.occupation],
+                      ['Business name', borrower.businessName ?? ''],
+                      ['Business type', borrower.sector ?? ''],
+                      ['Business location', borrower.businessLocation],
+                      ['Years in business', borrower.yearsTrading?.toString() ?? ''],
+                      ['Registration / TIN', [borrower.registrationNumber, borrower.taxId].filter(Boolean).join(' · ')],
+                    ]
+              } />
+              <ProfileCard title="Financial information" items={[
+                ['Monthly income', formatMoney(borrower.monthlyIncome)],
+                ['Monthly expenses', formatMoney(borrower.monthlyExpenses)],
+                ['Existing loan payments', formatMoney(borrower.existingLoanPayments)],
+                ['Disposable income', formatMoney(borrower.monthlyIncome - borrower.monthlyExpenses - borrower.existingLoanPayments)],
+                ['Other income', borrower.otherIncomeSources],
+                ['Existing loans', borrower.existingLoans],
+                ['Bank', [borrower.bankName, borrower.bankAccount].filter(Boolean).join(' · ')],
+                ['Mobile money', [borrower.mobileMoneyProvider, borrower.mobileMoneyNumber].filter(Boolean).join(' · ')],
+              ]} />
+              <ProfileCard title="Emergency contact" items={[
+                ['Name', borrower.emergencyName || borrower.nextOfKin],
+                ['Relationship', borrower.emergencyRelationship],
+                ['Phone', borrower.emergencyPhone],
+                ['Address', borrower.emergencyAddress],
+              ]} />
+            </div>
+          </div>
         )}
 
         {tab === 'applications' && (
@@ -295,12 +333,24 @@ export default function BorrowerDetail() {
             {borrower.guarantors.length === 0 && <p className="text-sm text-slate-400">No guarantors recorded.</p>}
             <ul className="divide-y divide-slate-100">
               {borrower.guarantors.map((g) => (
-                <li key={g.id} className="flex items-center justify-between py-2.5 text-sm">
+                <li key={g.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
                   <div>
-                    <p className="font-medium text-slate-800">{g.name}</p>
-                    <p className="text-xs text-slate-400">{g.nationalId} · {g.phone}</p>
+                    <p className="font-medium text-slate-800">
+                      {g.name} {g.relationship && <span className="font-normal text-slate-400">· {g.relationship}</span>}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {[g.nationalId, g.phone, g.address, g.occupation].filter(Boolean).join(' · ')}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Income {formatMoney(g.monthlyIncome)} · Guarantees <b>{formatMoney(g.guaranteeAmount)}</b>
+                    </p>
                   </div>
-                  <Badge tone={g.consentGiven ? 'green' : 'amber'}>{g.consentGiven ? `Consent given ${g.consentDate ? formatDate(g.consentDate) : ''}` : 'Consent pending'}</Badge>
+                  <div className="flex gap-2">
+                    <Badge tone={g.status === 'approved' ? 'green' : g.status === 'rejected' ? 'red' : 'amber'} className="capitalize">
+                      {g.status}
+                    </Badge>
+                    <Badge tone={g.consentGiven ? 'green' : 'slate'}>{g.consentGiven ? 'Consent given' : 'No consent yet'}</Badge>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -350,21 +400,27 @@ export default function BorrowerDetail() {
         )}
       </div>
 
-      <Modal open={blOpen} onClose={() => setBlOpen(false)} title="Blacklist borrower">
+      <Modal open={statusTo !== null} onClose={() => setStatusTo(null)} title={`Set status to ${statusTo ?? ''}`}>
         <form
           className="space-y-4"
           onSubmit={async (e) => {
             e.preventDefault()
-            await setBorrowerBlacklist(borrower.id, true, reason)
-            setBlOpen(false)
-            setReason('')
+            if (!statusTo) return
+            await setBorrowerStatus(borrower.id, statusTo, reason)
+            setStatusTo(null)
           }}
         >
-          <Field label="Reason" hint="Recorded permanently on the borrower's file">
-            <textarea required rows={3} className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} />
+          <p className="text-sm text-slate-600">
+            {statusTo === 'blacklisted' && 'A blacklisted borrower cannot apply for new loans. The reason is kept on file.'}
+            {statusTo === 'suspended' && 'A suspended borrower cannot apply for new loans until reactivated.'}
+            {statusTo === 'inactive' && 'Marks the borrower as dormant. They can still be reactivated at any time.'}
+            {statusTo === 'active' && 'Restores the borrower to good standing.'}
+          </p>
+          <Field label={statusTo === 'blacklisted' ? 'Reason (required)' : 'Reason (optional)'} hint="Recorded on the borrower's history">
+            <textarea rows={3} required={statusTo === 'blacklisted'} className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} />
           </Field>
-          <Button type="submit" variant="danger" className="w-full">
-            Confirm blacklist
+          <Button type="submit" variant={statusTo === 'blacklisted' || statusTo === 'suspended' ? 'danger' : 'primary'} className="w-full">
+            Confirm
           </Button>
         </form>
       </Modal>
@@ -432,69 +488,6 @@ export default function BorrowerDetail() {
         )}
       </Modal>
 
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit borrower profile" wide>
-        <form
-          className="space-y-4"
-          onSubmit={async (e) => {
-            e.preventDefault()
-            setBusy(true)
-            try {
-              await updateBorrower(borrower.id, {
-                fullName: editForm.fullName,
-                phone: editForm.phone,
-                residence: editForm.residence,
-                occupation: editForm.occupation,
-                monthlyIncome: editForm.monthlyIncome,
-                nextOfKin: editForm.nextOfKin,
-                businessName: editForm.businessName || undefined,
-                registrationNumber: editForm.registrationNumber || undefined,
-                taxId: editForm.taxId || undefined,
-                sector: editForm.sector || undefined,
-                yearsTrading: editForm.yearsTrading || undefined,
-              })
-              setEditOpen(false)
-            } finally {
-              setBusy(false)
-            }
-          }}
-        >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Full name">
-              <input required className={inputClass} value={editForm.fullName} onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })} />
-            </Field>
-            <Field label="Phone">
-              <input required className={inputClass} value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
-            </Field>
-            <Field label="Residence">
-              <input className={inputClass} value={editForm.residence} onChange={(e) => setEditForm({ ...editForm, residence: e.target.value })} />
-            </Field>
-            <Field label="Occupation">
-              <input className={inputClass} value={editForm.occupation} onChange={(e) => setEditForm({ ...editForm, occupation: e.target.value })} />
-            </Field>
-            <Field label="Monthly income">
-              <input type="number" className={inputClass} value={editForm.monthlyIncome} onChange={(e) => setEditForm({ ...editForm, monthlyIncome: Number(e.target.value) })} />
-            </Field>
-            <Field label="Next of kin">
-              <input className={inputClass} value={editForm.nextOfKin} onChange={(e) => setEditForm({ ...editForm, nextOfKin: e.target.value })} />
-            </Field>
-            <Field label="Business name">
-              <input className={inputClass} value={editForm.businessName} onChange={(e) => setEditForm({ ...editForm, businessName: e.target.value })} />
-            </Field>
-            <Field label="Registration number">
-              <input className={inputClass} value={editForm.registrationNumber} onChange={(e) => setEditForm({ ...editForm, registrationNumber: e.target.value })} />
-            </Field>
-            <Field label="Tax ID">
-              <input className={inputClass} value={editForm.taxId} onChange={(e) => setEditForm({ ...editForm, taxId: e.target.value })} />
-            </Field>
-            <Field label="Sector">
-              <input className={inputClass} value={editForm.sector} onChange={(e) => setEditForm({ ...editForm, sector: e.target.value })} />
-            </Field>
-          </div>
-          <Button type="submit" className="w-full" disabled={busy}>
-            {busy ? 'Saving…' : 'Save changes'}
-          </Button>
-        </form>
-      </Modal>
 
       <Modal open={docOpen} onClose={() => setDocOpen(false)} title="Upload document">
         <form
@@ -541,11 +534,30 @@ export default function BorrowerDetail() {
   )
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+const cap = (v: string) => (v ? v[0].toUpperCase() + v.slice(1) : v)
+
+function Stat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
   return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="text-slate-800">{value}</dd>
+    <div className="rounded-xl bg-white px-4 py-3">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`mt-1 text-base font-bold tabular-nums ${warn ? 'text-accent-600' : 'text-slate-900'}`}>{value}</p>
     </div>
   )
 }
+
+function ProfileCard({ title, items }: { title: string; items: [string, string | null | undefined][] }) {
+  return (
+    <Card>
+      <CardHeader title={title} />
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+        {items.map(([k, v]) => (
+          <div key={k}>
+            <dt className="text-xs text-slate-400">{k}</dt>
+            <dd className="font-medium text-slate-800">{v || '—'}</dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
+  )
+}
+

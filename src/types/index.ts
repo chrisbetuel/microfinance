@@ -68,14 +68,24 @@ export interface Holiday {
 
 export type BorrowerType = 'individual' | 'business'
 
+export type GuarantorStatus = 'pending' | 'approved' | 'rejected'
+
 export interface Guarantor {
   id: string
   name: string
   nationalId: string
   phone: string
+  relationship: string
+  address: string
+  occupation: string
+  monthlyIncome: number
+  guaranteeAmount: number
+  status: GuarantorStatus
   consentGiven: boolean
   consentDate: string | null
 }
+
+export type GuarantorInput = Omit<Guarantor, 'id' | 'consentDate'> & { consentDate?: string | null }
 
 export interface BorrowerDocument {
   id: string
@@ -91,27 +101,69 @@ export interface HistoryEvent {
   detail: string
 }
 
-export interface Borrower {
-  id: string
+export type BorrowerStatus = 'active' | 'inactive' | 'suspended' | 'blacklisted'
+export type IncomeSource = '' | 'employed' | 'business' | 'other'
+
+/** Everything the registration wizard collects. */
+export interface BorrowerProfile {
   type: BorrowerType
   branchId: string
+  officerId: string
+  // 1. personal
   fullName: string
-  businessName?: string
-  registrationNumber?: string
-  taxId?: string
-  sector?: string
-  yearsTrading?: number
+  dateOfBirth: string | null
+  gender: string
   nationalId: string
   phone: string
+  altPhone: string
+  email: string
+  maritalStatus: string
+  // 2. address (residence = physical address)
+  region: string
+  district: string
+  ward: string
+  street: string
   residence: string
+  postalAddress: string
+  // 3. employment / business (sector = business type, yearsTrading = years in business)
+  incomeSource: IncomeSource
   occupation: string
+  employerName: string
+  jobTitle: string
+  employmentType: string
+  yearsEmployed: number | null
+  businessName?: string | null
+  registrationNumber?: string | null
+  taxId?: string | null
+  sector?: string | null
+  businessLocation: string
+  yearsTrading?: number | null
+  // 4. financial
   monthlyIncome: number
+  monthlyExpenses: number
+  otherIncomeSources: string
+  existingLoans: string
+  existingLoanPayments: number
+  bankName: string
+  bankAccount: string
+  mobileMoneyProvider: string
+  mobileMoneyNumber: string
+  // 5. emergency contact
   nextOfKin: string
+  emergencyName: string
+  emergencyRelationship: string
+  emergencyPhone: string
+  emergencyAddress: string
+}
+
+export interface Borrower extends BorrowerProfile {
+  id: string
+  customerNumber: string
+  status: BorrowerStatus
   guarantors: Guarantor[]
   documents: BorrowerDocument[]
   blacklisted: boolean
   blacklistReason: string | null
-  officerId: string
   createdAt: string
   history: HistoryEvent[]
 }

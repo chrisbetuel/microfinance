@@ -9,7 +9,7 @@ import { api, ApiError, setToken } from '../lib/api'
 // This screen is always dark (it doesn't follow the app theme), so it uses
 // literal colours — the dark-mode palette remap never touches them.
 const input =
-  'w-full rounded-full border border-[rgba(255,255,255,0.28)] bg-[rgba(255,255,255,0.04)] px-5 py-3 text-sm text-[#ffffff] outline-none transition placeholder:text-[rgba(255,255,255,0.75)] focus:border-[#3b82f6] focus:bg-[rgba(255,255,255,0.07)] focus:ring-2 focus:ring-[rgba(59,130,246,0.35)]'
+  'w-full rounded-full border border-[rgba(255,255,255,0.28)] bg-[rgba(255,255,255,0.04)] px-5 py-3 text-sm text-[#ffffff] outline-none transition placeholder:text-[rgba(255,255,255,0.75)] focus:border-[#2bb594] focus:bg-[rgba(255,255,255,0.07)] focus:ring-2 focus:ring-[rgba(43,181,148,0.35)]'
 
 const REMEMBER_KEY = 'lms-remember-email'
 
@@ -81,22 +81,22 @@ export default function Login() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020308] px-5 py-12">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#010806] px-5 py-12">
       {/* glowing arcs */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-[42%] top-[-28vmin] h-[96vmin] w-[96vmin] rounded-full border-[7px] border-[#1d7bff]"
+        className="pointer-events-none absolute left-[42%] top-[-28vmin] h-[96vmin] w-[96vmin] rounded-full border-[7px] border-[#2bb594]"
         style={{
           boxShadow:
-            '0 0 40px rgba(29,123,255,0.65), inset 0 0 60px rgba(29,123,255,0.35), inset 0 0 220px rgba(20,60,200,0.35)',
+            '0 0 40px rgba(43,181,148,0.6), inset 0 0 60px rgba(43,181,148,0.3), inset 0 0 220px rgba(10,90,72,0.35)',
         }}
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute bottom-[-40vmin] right-[44%] h-[96vmin] w-[96vmin] rounded-full border-[7px] border-[#1d7bff]"
+        className="pointer-events-none absolute bottom-[-40vmin] right-[44%] h-[96vmin] w-[96vmin] rounded-full border-[7px] border-[#2bb594]"
         style={{
           boxShadow:
-            '0 0 40px rgba(29,123,255,0.65), inset 0 0 60px rgba(29,123,255,0.35), inset 0 0 220px rgba(20,60,200,0.35)',
+            '0 0 40px rgba(43,181,148,0.6), inset 0 0 60px rgba(43,181,148,0.3), inset 0 0 220px rgba(10,90,72,0.35)',
         }}
       />
       {/* diagonal light beam */}
@@ -105,7 +105,7 @@ export default function Login() {
         className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            'linear-gradient(135deg, transparent 38%, rgba(70,90,255,0.10) 46%, rgba(120,140,255,0.22) 50%, rgba(70,90,255,0.10) 54%, transparent 62%)',
+            'linear-gradient(135deg, transparent 38%, rgba(40,170,140,0.08) 46%, rgba(90,210,180,0.18) 50%, rgba(40,170,140,0.08) 54%, transparent 62%)',
         }}
       />
       {/* faint grid */}
@@ -120,7 +120,7 @@ export default function Login() {
       />
 
       {/* glass card */}
-      <div className="relative w-full max-w-[400px] rounded-2xl border border-[rgba(255,255,255,0.16)] bg-[rgba(10,16,48,0.35)] px-8 py-9 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl sm:px-10">
+      <div className="relative w-full max-w-[400px] rounded-2xl border border-[rgba(255,255,255,0.16)] bg-[rgba(6,40,33,0.35)] px-8 py-9 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl sm:px-10">
         <h1 className="text-center text-3xl font-bold tracking-tight text-[#ffffff]">
           {mode === 'login' ? 'Login' : 'Register'}
         </h1>
@@ -191,7 +191,7 @@ export default function Login() {
                   type="checkbox"
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
-                  className="h-3.5 w-3.5 accent-[#1d7bff]"
+                  className="h-3.5 w-3.5 accent-[#2bb594]"
                 />
                 Remember me
               </label>
@@ -214,9 +214,9 @@ export default function Login() {
           <button
             type="submit"
             disabled={busy}
-            className="mt-1 flex w-full items-center justify-center gap-2 rounded-full bg-[#ffffff] py-3 text-sm font-semibold text-[#0b1020] transition hover:bg-[#e8edff] disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-full bg-[#14705d] py-3 text-sm font-semibold text-[#ffffff] shadow-[0_8px_24px_-8px_rgba(43,181,148,0.7)] transition hover:bg-[#0f5b4c] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {busy && <span className="h-4 w-4 animate-spin rounded-full border-2 border-[rgba(11,16,32,0.25)] border-t-[#0b1020]" />}
+            {busy && <span className="h-4 w-4 animate-spin rounded-full border-2 border-[rgba(255,255,255,0.35)] border-t-[#ffffff]" />}
             {busy ? 'Please wait…' : mode === 'login' ? 'Login' : 'Create workspace'}
           </button>
         </form>

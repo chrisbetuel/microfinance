@@ -98,12 +98,58 @@ class Borrower(models.Model):
     sector = models.CharField(max_length=150, null=True, blank=True)
     years_trading = models.IntegerField(null=True, blank=True)
 
+    class Status(models.TextChoices):
+        ACTIVE = "active"
+        INACTIVE = "inactive"
+        SUSPENDED = "suspended"
+        BLACKLISTED = "blacklisted"
+
+    customer_number = models.CharField(max_length=20, blank=True, default="", db_index=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.ACTIVE)
+
+    # 1. personal
     national_id = models.CharField(max_length=100, db_index=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    gender = models.CharField(max_length=10, blank=True, default="")
+    marital_status = models.CharField(max_length=20, blank=True, default="")
     phone = models.CharField(max_length=50)
+    alt_phone = models.CharField(max_length=50, blank=True, default="")
+    email = models.CharField(max_length=200, blank=True, default="")
+
+    # 2. address  (residence = physical address)
+    region = models.CharField(max_length=100, blank=True, default="")
+    district = models.CharField(max_length=100, blank=True, default="")
+    ward = models.CharField(max_length=100, blank=True, default="")
+    street = models.CharField(max_length=150, blank=True, default="")
     residence = models.CharField(max_length=250, blank=True, default="")
+    postal_address = models.CharField(max_length=150, blank=True, default="")
+
+    # 3. employment / business  (sector = business type, years_trading = years in business)
+    income_source = models.CharField(max_length=12, blank=True, default="")  # employed | business | other
     occupation = models.CharField(max_length=150, blank=True, default="")
+    employer_name = models.CharField(max_length=200, blank=True, default="")
+    job_title = models.CharField(max_length=150, blank=True, default="")
+    employment_type = models.CharField(max_length=30, blank=True, default="")
+    years_employed = models.IntegerField(null=True, blank=True)
+    business_location = models.CharField(max_length=200, blank=True, default="")
+
+    # 4. financial
     monthly_income = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    monthly_expenses = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    other_income_sources = models.CharField(max_length=250, blank=True, default="")
+    existing_loans = models.CharField(max_length=250, blank=True, default="")
+    existing_loan_payments = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    bank_name = models.CharField(max_length=100, blank=True, default="")
+    bank_account = models.CharField(max_length=50, blank=True, default="")
+    mobile_money_provider = models.CharField(max_length=50, blank=True, default="")
+    mobile_money_number = models.CharField(max_length=50, blank=True, default="")
+
+    # 5. emergency contact  (next_of_kin kept for older records)
     next_of_kin = models.CharField(max_length=200, blank=True, default="")
+    emergency_name = models.CharField(max_length=200, blank=True, default="")
+    emergency_relationship = models.CharField(max_length=60, blank=True, default="")
+    emergency_phone = models.CharField(max_length=50, blank=True, default="")
+    emergency_address = models.CharField(max_length=250, blank=True, default="")
 
     blacklisted = models.BooleanField(default=False)
     blacklist_reason = models.TextField(null=True, blank=True)
@@ -119,6 +165,12 @@ class Guarantor(models.Model):
     name = models.CharField(max_length=200)
     national_id = models.CharField(max_length=100)
     phone = models.CharField(max_length=50)
+    relationship = models.CharField(max_length=60, blank=True, default="")
+    address = models.CharField(max_length=250, blank=True, default="")
+    occupation = models.CharField(max_length=200, blank=True, default="")
+    monthly_income = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    guarantee_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    status = models.CharField(max_length=12, default="pending")  # pending | approved | rejected
     consent_given = models.BooleanField(default=False)
     consent_date = models.DateField(null=True, blank=True)
 

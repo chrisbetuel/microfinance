@@ -141,7 +141,10 @@ class HolidayCreateSerializer(serializers.Serializer):
 class GuarantorSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Guarantor
-        fields = ["id", "name", "national_id", "phone", "consent_given", "consent_date"]
+        fields = [
+            "id", "name", "national_id", "phone", "relationship", "address", "occupation",
+            "monthly_income", "guarantee_amount", "status", "consent_given", "consent_date",
+        ]
 
 
 class BorrowerDocumentSerializer(serializers.ModelSerializer):
@@ -156,6 +159,21 @@ class BorrowerHistoryEventSerializer(serializers.ModelSerializer):
         fields = ["id", "date", "label", "detail"]
 
 
+# Profile fields grouped as the registration wizard collects them. Text fields
+# are optional/blank-able; national_id, phone and full_name are required on create.
+BORROWER_TEXT_FIELDS = [
+    "business_name", "registration_number", "tax_id", "sector",
+    "gender", "marital_status", "alt_phone", "email",
+    "region", "district", "ward", "street", "residence", "postal_address",
+    "income_source", "occupation", "employer_name", "job_title", "employment_type", "business_location",
+    "other_income_sources", "existing_loans", "bank_name", "bank_account",
+    "mobile_money_provider", "mobile_money_number",
+    "next_of_kin", "emergency_name", "emergency_relationship", "emergency_phone", "emergency_address",
+]
+BORROWER_INT_FIELDS = ["years_trading", "years_employed"]
+BORROWER_MONEY_FIELDS = ["monthly_income", "monthly_expenses", "existing_loan_payments"]
+
+
 class BorrowerSerializer(serializers.ModelSerializer):
     lender_id = Uuid()
     branch_id = Uuid()
@@ -167,10 +185,10 @@ class BorrowerSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Borrower
         fields = [
-            "id", "lender_id", "branch_id", "officer_id", "type", "full_name", "business_name",
-            "registration_number", "tax_id", "sector", "years_trading", "national_id", "phone",
-            "residence", "occupation", "monthly_income", "next_of_kin", "blacklisted",
-            "blacklist_reason", "created_at", "guarantors", "documents", "history",
+            "id", "lender_id", "branch_id", "officer_id", "customer_number", "status", "type",
+            "full_name", "national_id", "phone", "date_of_birth",
+            *BORROWER_TEXT_FIELDS, *BORROWER_INT_FIELDS, *BORROWER_MONEY_FIELDS,
+            "blacklisted", "blacklist_reason", "created_at", "guarantors", "documents", "history",
         ]
 
 
@@ -178,45 +196,42 @@ class GuarantorWriteSerializer(serializers.Serializer):
     name = serializers.CharField()
     national_id = serializers.CharField()
     phone = serializers.CharField()
+    relationship = serializers.CharField(required=False, allow_blank=True, default="")
+    address = serializers.CharField(required=False, allow_blank=True, default="")
+    occupation = serializers.CharField(required=False, allow_blank=True, default="")
+    monthly_income = serializers.FloatField(required=False, default=0)
+    guarantee_amount = serializers.FloatField(required=False, default=0)
+    status = serializers.ChoiceField(choices=["pending", "approved", "rejected"], required=False, default="pending")
     consent_given = serializers.BooleanField(required=False, default=False)
     consent_date = serializers.DateField(required=False, allow_null=True)
 
 
-class BorrowerCreateSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=BorrowerType.choices)
-    branch_id = serializers.UUIDField()
-    officer_id = serializers.UUIDField(required=False, allow_null=True)
-    full_name = serializers.CharField()
-    business_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    registration_number = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    tax_id = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    sector = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    years_trading = serializers.IntegerField(required=False, allow_null=True)
-    national_id = serializers.CharField()
-    phone = serializers.CharField()
-    residence = serializers.CharField(required=False, allow_blank=True, default="")
-    occupation = serializers.CharField(required=False, allow_blank=True, default="")
-    monthly_income = serializers.FloatField(required=False, default=0)
-    next_of_kin = serializers.CharField(required=False, allow_blank=True, default="")
-    guarantors = GuarantorWriteSerializer(many=True, required=False, default=list)
+def _profile_fields(create: bool) -> dict:
+    fields = {}
+    for name in BORROWER_TEXT_FIELDS:
+        fields[name] = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    for name in BORROWER_INT_FIELDS:
+        fields[name] = serializers.IntegerField(required=False, allow_null=True)
+    for name in BORROWER_MONEY_FIELDS:
+        fields[name] = serializers.FloatField(required=False)
+    fields["date_of_birth"] = serializers.DateField(required=False, allow_null=True)
+    fields["type"] = serializers.ChoiceField(choices=BorrowerType.choices, required=create)
+    fields["branch_id"] = serializers.UUIDField(required=create)
+    fields["officer_id"] = serializers.UUIDField(required=False, allow_null=True)
+    fields["full_name"] = serializers.CharField(required=create)
+    fields["national_id"] = serializers.CharField(required=create)
+    fields["phone"] = serializers.CharField(required=create)
+    fields["guarantors"] = GuarantorWriteSerializer(many=True, required=False)
+    return fields
 
 
-class BorrowerUpdateSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=BorrowerType.choices, required=False)
-    branch_id = serializers.UUIDField(required=False)
-    officer_id = serializers.UUIDField(required=False, allow_null=True)
-    full_name = serializers.CharField(required=False)
-    business_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    registration_number = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    tax_id = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    sector = serializers.CharField(required=False, allow_null=True, allow_blank=True)
-    years_trading = serializers.IntegerField(required=False, allow_null=True)
-    national_id = serializers.CharField(required=False)
-    phone = serializers.CharField(required=False)
-    residence = serializers.CharField(required=False, allow_blank=True)
-    occupation = serializers.CharField(required=False, allow_blank=True)
-    monthly_income = serializers.FloatField(required=False)
-    next_of_kin = serializers.CharField(required=False, allow_blank=True)
+BorrowerCreateSerializer = type("BorrowerCreateSerializer", (serializers.Serializer,), _profile_fields(True))
+BorrowerUpdateSerializer = type("BorrowerUpdateSerializer", (serializers.Serializer,), _profile_fields(False))
+
+
+class BorrowerStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=models.Borrower.Status.choices)
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class BlacklistSerializer(serializers.Serializer):

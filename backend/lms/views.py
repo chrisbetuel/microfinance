@@ -253,15 +253,20 @@ class BorrowersView(APIView):
         return Response(ser.BorrowerSerializer(borrower_qs(request.user.lender), many=True).data)
 
     def post(self, request):
-        data = validated(ser.BorrowerCreateSerializer, request.data)
+        data = _clean_profile(validated(ser.BorrowerCreateSerializer, request.data))
         lender = request.user.lender
         officer_id = data.pop("officer_id", None) or request.user.id
-        guarantors = data.pop("guarantors", [])
+        guarantors = data.pop("guarantors", None) or []
         ensure_branch(lender, data["branch_id"])
         ensure_staff_member(lender, officer_id)
+        if not data.get("next_of_kin") and data.get("emergency_name"):
+            data["next_of_kin"] = data["emergency_name"]
 
         with transaction.atomic():
-            borrower = Borrower.objects.create(lender=lender, officer_id=officer_id, blacklisted=False, **data)
+            borrower = Borrower.objects.create(
+                lender=lender, officer_id=officer_id, blacklisted=False,
+                customer_number=_next_customer_number(lender), **data,
+            )
             Guarantor.objects.bulk_create(Guarantor(borrower=borrower, **g) for g in guarantors)
             BorrowerHistoryEvent.objects.create(
                 borrower=borrower, label="File opened",
@@ -291,42 +296,80 @@ class BorrowerDetailView(APIView):
         borrower = Borrower.objects.filter(pk=borrower_id, lender=lender).first()
         if borrower is None:
             raise NotFound("Borrower not found")
-        data = validated(ser.BorrowerUpdateSerializer, request.data)
+        data = _clean_profile(validated(ser.BorrowerUpdateSerializer, request.data))
         if "branch_id" in data:
             ensure_branch(lender, data["branch_id"])
         if "officer_id" in data and data["officer_id"] is not None:
             ensure_staff_member(lender, data["officer_id"])
+        guarantors = data.pop("guarantors", None)
 
-        field_map = {
-            "type": "type", "branch_id": "branch_id", "officer_id": "officer_id",
-            "full_name": "full_name", "business_name": "business_name",
-            "registration_number": "registration_number", "tax_id": "tax_id",
-            "sector": "sector", "years_trading": "years_trading",
-            "national_id": "national_id", "phone": "phone", "residence": "residence",
-            "occupation": "occupation", "monthly_income": "monthly_income",
-            "next_of_kin": "next_of_kin",
-        }
         changes = []
-        for src, dest in field_map.items():
-            if src in data:
-                old_val = getattr(borrower, dest)
-                new_val = data[src]
-                if str(old_val) != str(new_val):
-                    changes.append(f"{src}: {old_val} → {new_val}")
-                setattr(borrower, dest, new_val)
+        for field, new_val in data.items():
+            if field == "officer_id" and new_val is None:
+                continue
+            old_val = getattr(borrower, field)
+            if str(old_val if old_val is not None else "") != str(new_val if new_val is not None else ""):
+                changes.append(field.replace("_", " "))
+            setattr(borrower, field, new_val)
+        if guarantors is not None:
+            borrower.guarantors.all().delete()
+            Guarantor.objects.bulk_create(Guarantor(borrower=borrower, **g) for g in guarantors)
+            changes.append("guarantors")
         borrower.save()
 
         if changes:
             with transaction.atomic():
                 BorrowerHistoryEvent.objects.create(
                     borrower=borrower, label="Profile updated",
-                    detail="; ".join(changes),
+                    detail="Changed: " + ", ".join(changes),
                 )
                 audit.record(
                     request.user, "updated", "borrower", borrower.id,
                     f'Borrower "{borrower.full_name}" profile updated',
                 )
         return Response(ser.BorrowerSerializer(borrower_qs(lender).get(pk=borrower.pk)).data)
+
+
+_NON_NULL_TEXT = set(ser.BORROWER_TEXT_FIELDS) - {"business_name", "registration_number", "tax_id", "sector"}
+
+
+def _clean_profile(data: dict) -> dict:
+    """Blank-able text columns aren't nullable — store None as an empty string."""
+    for name in _NON_NULL_TEXT:
+        if name in data and data[name] is None:
+            data[name] = ""
+    return data
+
+
+def _next_customer_number(lender) -> str:
+    n = Borrower.objects.filter(lender=lender).count() + 1
+    while Borrower.objects.filter(lender=lender, customer_number=f"CUS-{n:05d}").exists():
+        n += 1
+    return f"CUS-{n:05d}"
+
+
+class BorrowerStatusView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def post(self, request, borrower_id):
+        borrower = borrower_qs(request.user.lender).filter(pk=borrower_id).first()
+        if borrower is None:
+            raise NotFound("Borrower not found")
+        data = validated(ser.BorrowerStatusSerializer, request.data)
+        new = data["status"]
+        reason = data.get("reason") or ""
+        if new == Borrower.Status.BLACKLISTED and not reason:
+            raise UnprocessableEntity("A reason is required to blacklist a borrower")
+        with transaction.atomic():
+            borrower.status = new
+            borrower.blacklisted = new == Borrower.Status.BLACKLISTED
+            borrower.blacklist_reason = reason if borrower.blacklisted else None
+            borrower.save(update_fields=["status", "blacklisted", "blacklist_reason"])
+            BorrowerHistoryEvent.objects.create(
+                borrower=borrower, label=f"Status set to {new}", detail=reason or "No reason recorded",
+            )
+            audit.record(request.user, "status", "borrower", borrower.id, f"{borrower.full_name} → {new}. {reason}".strip())
+        return Response(ser.BorrowerSerializer(borrower_qs(request.user.lender).get(pk=borrower_id)).data)
 
 
 class BorrowerBlacklistView(APIView):
@@ -340,7 +383,8 @@ class BorrowerBlacklistView(APIView):
         with transaction.atomic():
             borrower.blacklisted = data["blacklisted"]
             borrower.blacklist_reason = data.get("reason") if data["blacklisted"] else None
-            borrower.save(update_fields=["blacklisted", "blacklist_reason"])
+            borrower.status = Borrower.Status.BLACKLISTED if data["blacklisted"] else Borrower.Status.ACTIVE
+            borrower.save(update_fields=["blacklisted", "blacklist_reason", "status"])
             BorrowerHistoryEvent.objects.create(
                 borrower=borrower,
                 label="Blacklisted" if data["blacklisted"] else "Removed from blacklist",
@@ -480,6 +524,8 @@ class ApplicationsView(APIView):
             raise NotFound("Borrower not found")
         if borrower.blacklisted:
             raise UnprocessableEntity("Borrower is blacklisted")
+        if borrower.status == Borrower.Status.SUSPENDED:
+            raise UnprocessableEntity("Borrower is suspended")
 
         product = product_qs(lender).filter(pk=data["product_id"]).first()
         if product is None:
@@ -791,7 +837,8 @@ class LoanWriteOffView(APIView):
             borrower = loan.borrower
             borrower.blacklisted = True
             borrower.blacklist_reason = f"Loan written off: {reason}"
-            borrower.save(update_fields=["blacklisted", "blacklist_reason"])
+            borrower.status = Borrower.Status.BLACKLISTED
+            borrower.save(update_fields=["blacklisted", "blacklist_reason", "status"])
             BorrowerHistoryEvent.objects.create(
                 borrower=borrower, label="Loan written off",
                 detail=f"{loan.outstanding_balance:,.0f} written off — {reason}",

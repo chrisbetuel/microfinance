@@ -21,6 +21,7 @@ urlpatterns = [
     path("borrowers", v.BorrowersView.as_view()),
     path("borrowers/<uuid:borrower_id>", v.BorrowerDetailView.as_view()),
     path("borrowers/<uuid:borrower_id>/blacklist", v.BorrowerBlacklistView.as_view()),
+    path("borrowers/<uuid:borrower_id>/status", v.BorrowerStatusView.as_view()),
     path("borrowers/<uuid:borrower_id>/documents", v.BorrowerDocumentUploadView.as_view()),
     path("borrowers/<uuid:borrower_id>/step-up", v.BorrowerStepUpView.as_view()),
     path("borrowers/<uuid:borrower_id>/savings", v.BorrowerSavingsView.as_view()),

@@ -4,6 +4,9 @@ import type {
   AuditLogEntry,
   Borrower,
   BorrowerGroup,
+  BorrowerProfile,
+  BorrowerStatus,
+  GuarantorInput,
   Branch,
   CollectionActivity,
   CollectionActivityKind,
@@ -95,13 +98,12 @@ interface StoreState {
   addHoliday: (holiday: Omit<Holiday, 'id'>) => Promise<void>
   removeHoliday: (id: string) => Promise<void>
 
-  addBorrower: (
-    borrower: Omit<
-      Borrower,
-      'id' | 'guarantors' | 'documents' | 'createdAt' | 'history' | 'blacklisted' | 'blacklistReason'
-    > & { guarantors?: { name: string; nationalId: string; phone: string }[] },
-  ) => Promise<string>
-  updateBorrower: (borrowerId: string, patch: Partial<Borrower>) => Promise<void>
+  addBorrower: (borrower: BorrowerProfile & { guarantors?: GuarantorInput[] }) => Promise<string>
+  updateBorrower: (
+    borrowerId: string,
+    patch: Partial<BorrowerProfile> & { guarantors?: GuarantorInput[] },
+  ) => Promise<void>
+  setBorrowerStatus: (borrowerId: string, status: BorrowerStatus, reason?: string) => Promise<void>
   setBorrowerBlacklist: (borrowerId: string, blacklisted: boolean, reason: string | null) => Promise<void>
   uploadBorrowerDocument: (borrowerId: string, name: string, type: string) => Promise<void>
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
@@ -352,6 +354,13 @@ export const useStore = create<StoreState>()((set, get) => {
       const updated = await api.patch<Borrower>(`/borrowers/${borrowerId}`, patch)
       set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
       toast.success('Borrower updated', updated.fullName)
+      await refreshAudit()
+    },
+
+    setBorrowerStatus: async (borrowerId, status, reason) => {
+      const updated = await api.post<Borrower>(`/borrowers/${borrowerId}/status`, { status, reason: reason ?? '' })
+      set((s) => ({ borrowers: s.borrowers.map((b) => (b.id === borrowerId ? updated : b)) }))
+      toast.success(`Borrower set to ${status}`)
       await refreshAudit()
     },
 

@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import LenderSetup from './pages/lender/LenderSetup'
 import BorrowersList from './pages/borrowers/BorrowersList'
 import BorrowerDetail from './pages/borrowers/BorrowerDetail'
+import BorrowerForm from './pages/borrowers/BorrowerForm'
 import ProductsList from './pages/products/ProductsList'
 import ProductEditor from './pages/products/ProductEditor'
 import ApplicationsList from './pages/applications/ApplicationsList'
@@ -78,6 +79,8 @@ export default function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/lender-setup" element={<LenderSetup />} />
             <Route path="/borrowers" element={<BorrowersList />} />
+            <Route path="/borrowers/new" element={<BorrowerForm />} />
+            <Route path="/borrowers/:id/edit" element={<BorrowerForm />} />
             <Route path="/borrowers/:id" element={<BorrowerDetail />} />
             <Route path="/groups" element={<Groups />} />
             <Route path="/products" element={<ProductsList />} />
