@@ -16,6 +16,8 @@ import ApplicationsList from './pages/applications/ApplicationsList'
 import ApplicationForm from './pages/applications/ApplicationForm'
 import ApplicationDetail from './pages/applications/ApplicationDetail'
 import DisbursementQueue from './pages/disbursement/DisbursementQueue'
+import DisbursementPrepare from './pages/disbursement/DisbursementPrepare'
+import DisbursementDetail from './pages/disbursement/DisbursementDetail'
 import Repayments from './pages/repayments/Repayments'
 import SecurityAudit from './pages/security/SecurityAudit'
 import Reports from './pages/reports/Reports'
@@ -98,6 +100,9 @@ export default function App() {
             <Route path="/applications/:id/edit" element={<ApplicationForm />} />
             <Route path="/applications/:id" element={<ApplicationDetail />} />
             <Route path="/disbursement" element={<DisbursementQueue />} />
+            <Route path="/disbursement/prepare/:applicationId" element={<DisbursementPrepare />} />
+            <Route path="/disbursement/:id" element={<DisbursementDetail />} />
+            <Route path="/disbursement/:id/edit" element={<DisbursementPrepare />} />
             <Route path="/repayments" element={<Repayments />} />
             <Route path="/collections" element={<Collections />} />
             <Route path="/messages" element={<Messages />} />

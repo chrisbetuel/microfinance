@@ -1,382 +1,278 @@
-import { useMemo, useState } from 'react'
-import { Download, Layers } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import clsx from 'clsx'
+import { Download, Scale } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { PageHeader } from '../../components/ui/PageHeader'
 import { Tabs } from '../../components/ui/Tabs'
 import { Table } from '../../components/ui/Table'
 import { Button } from '../../components/ui/Button'
-import { Modal } from '../../components/ui/Modal'
-import { BorrowerLink } from '../../components/ui/BorrowerLink'
-import { Field, inputClass } from '../../components/ui/Field'
-import type { Application, DisbursementChannel } from '../../types'
-import { formatDateTime, formatMoney } from '../../lib/format'
-import { totalFeeAmount } from '../../lib/loanMath'
+import { Badge } from '../../components/ui/Badge'
+import { Card, CardHeader } from '../../components/ui/Card'
+import { StatTile } from '../../components/ui/StatTile'
+import { formatDate, formatDateTime, formatMoney } from '../../lib/format'
 import { useCanEdit } from '../../lib/useCanEdit'
 import { downloadCSV } from '../../lib/csv'
-import { PayoutModal } from '../payments/Payments'
+import type { Disbursement, LedgerData } from '../../types'
+import { DISB_STATUS_LABEL, DISB_STATUS_TONE, METHOD_LABEL } from './disbursementParts'
 
-const channelLabels: Record<DisbursementChannel, string> = {
-  mobile_money: 'Mobile money',
-  bank_transfer: 'Bank transfer',
-  supplier: 'Direct to supplier',
-  cash: 'Cash',
+const OPEN = ['pending', 'under_verification', 'approved', 'processing']
+
+const NEXT_STEP: Record<string, (d: Disbursement) => string> = {
+  pending: () => 'Send for verification',
+  under_verification: (d) =>
+    !d.verifiedById ? 'Verify (not the preparer)' : d.requiresDualAuthorisation && d.authorisedById ? 'Second authorisation' : 'Authorise',
+  approved: () => 'Release money',
+  processing: (d) => (d.method === 'mobile_money' ? 'Awaiting gateway confirmation' : 'Confirm transaction'),
 }
 
-const tabs = [
-  { id: 'queue', label: 'Awaiting disbursement' },
-  { id: 'register', label: 'Disbursement register' },
-]
-
 export default function DisbursementQueue() {
-  const [tab, setTab] = useState('queue')
-  const allApplications = useStore((s) => s.applications)
-  const applications = useMemo(() => allApplications.filter((a) => a.status === 'approved'), [allApplications])
+  const navigate = useNavigate()
+  const canEdit = useCanEdit()
+  const applications = useStore((s) => s.applications)
+  const disbursements = useStore((s) => s.disbursements)
   const borrowers = useStore((s) => s.borrowers)
   const products = useStore((s) => s.products)
-  const lender = useStore((s) => s.lender)
-  const disburseLoan = useStore((s) => s.disburseLoan)
-  const disburseBatch = useStore((s) => s.disburseBatch)
-  const currentStaffId = useStore((s) => s.currentStaffId)
-  const staff = useStore((s) => s.staff)
-  const loans = useStore((s) => s.loans)
-  const canEdit = useCanEdit()
-
-  const [active, setActive] = useState<Application | null>(null)
-  const [channel, setChannel] = useState<DisbursementChannel>('mobile_money')
-  const [reference, setReference] = useState('')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [batchOpen, setBatchOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [payoutFor, setPayoutFor] = useState<string | null>(null)
-
-  const currentStaff = staff.find((s) => s.id === currentStaffId)
-
-  function toggle(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+  const currency = useStore((s) => s.lender.currency)
+  const [tab, setTab] = useState(() => {
+    try {
+      return localStorage.getItem('lms-disb-tab') || 'ready'
+    } catch {
+      return 'ready'
+    }
+  })
+  const choose = (t: string) => {
+    setTab(t)
+    try {
+      localStorage.setItem('lms-disb-tab', t)
+    } catch {
+      /* storage unavailable */
+    }
   }
+  const money = (n: number) => formatMoney(n, currency)
 
-  const selectableIds = applications
-    .filter((a) => (a.approvals.at(-1)?.approverName ?? '') !== currentStaff?.name)
-    .map((a) => a.id)
-  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id))
-  const selectedApps = applications.filter((a) => selected.has(a.id))
-  const selectedTotal = selectedApps.reduce((s, a) => s + a.amount, 0)
+  const ready = useMemo(
+    () => applications.filter((a) => a.status === 'approved' && !disbursements.some((d) => d.applicationId === a.id && OPEN.includes(d.status))),
+    [applications, disbursements],
+  )
+  const inProgress = disbursements.filter((d) => OPEN.includes(d.status))
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  const thisMonth = disbursements.filter((d) => d.status === 'successful' && d.confirmedAt && new Date(d.confirmedAt) >= monthStart)
 
-  function downloadPaymentFile() {
-    downloadCSV(
-      `disbursement-queue-${new Date().toISOString().slice(0, 10)}.csv`,
-      ['Reference', 'Borrower', 'Phone', 'Product', 'Approved amount', 'Approved by'],
-      applications.map((a) => {
-        const b = borrowers.find((x) => x.id === a.borrowerId)
-        return [
-          a.reference,
-          b?.fullName ?? '',
-          b?.phone ?? '',
-          products.find((p) => p.id === a.productId)?.name ?? '',
-          a.amount,
-          a.approvals.at(-1)?.approverName ?? '',
-        ]
-      }),
-    )
-  }
+  const tabs = [
+    { id: 'ready', label: `Ready to prepare (${ready.length})` },
+    { id: 'progress', label: `In progress (${inProgress.length})` },
+    { id: 'register', label: 'Disbursement register' },
+    { id: 'ledger', label: 'Ledger & reconciliation' },
+  ]
 
   return (
     <div>
       <PageHeader
         title="Disbursement"
-        subtitle="Every shilling traceable to an approval and a destination"
-        action={
-          tab === 'queue' && applications.length > 0 ? (
-            <Button variant="secondary" size="sm" icon={<Download size={14} />} onClick={downloadPaymentFile}>
-              Payment file
-            </Button>
-          ) : undefined
-        }
+        subtitle="An approved loan is not a disbursed loan: prepare → verify → authorise → release → confirm"
       />
-      <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
-      <div className="mt-6">
-        {tab === 'queue' && (
-          <>
-            {canEdit && selected.size > 0 && (
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5">
-                <p className="text-sm font-medium text-brand-800">
-                  {selected.size} selected · {formatMoney(selectedTotal, lender.currency)}
-                </p>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-                    Clear
-                  </Button>
-                  <Button size="sm" icon={<Layers size={14} />} onClick={() => setBatchOpen(true)}>
-                    Disburse selected
-                  </Button>
-                </div>
-              </div>
-            )}
-            <Table
-              rowKey={(a) => a.id}
-              rows={applications}
-              columns={[
-                ...(canEdit
-                  ? [
-                      {
-                        header: '',
-                        className: 'w-10',
-                        cell: (a: Application) => {
-                          const disqualified = (a.approvals.at(-1)?.approverName ?? '') === currentStaff?.name
-                          return (
-                            <input
-                              type="checkbox"
-                              disabled={disqualified}
-                              checked={selected.has(a.id)}
-                              onChange={() => toggle(a.id)}
-                              title={disqualified ? 'You approved this loan — someone else must release it' : ''}
-                            />
-                          )
-                        },
-                      },
-                    ]
-                  : []),
-                { header: 'Reference', cell: (a) => a.reference },
-                { header: 'Borrower', cell: (a) => <BorrowerLink id={a.borrowerId} borrowers={borrowers} /> },
-                { header: 'Product', cell: (a) => products.find((p) => p.id === a.productId)?.name },
-                { header: 'Amount', cell: (a) => formatMoney(a.amount, lender.currency), sort: (a) => a.amount },
-                { header: 'Approved by', cell: (a) => a.approvals.at(-1)?.approverName ?? '—' },
-                {
-                  header: '',
-                  cell: (a) =>
-                    canEdit && (
-                      <div className="flex justify-end gap-1.5">
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            setActive(a)
-                            setReference(`REF-${Date.now().toString().slice(-6)}`)
-                          }}
-                        >
-                          Disburse
-                        </Button>
-                        <Button size="sm" variant="secondary" onClick={() => setPayoutFor(a.id)}>
-                          Send via mobile money
-                        </Button>
-                      </div>
-                    ),
-                },
-              ]}
-            />
-            <PayoutModal open={payoutFor !== null} onClose={() => setPayoutFor(null)} applicationId={payoutFor} />
-            {canEdit && selectableIds.length > 0 && (
-              <button
-                onClick={() => setSelected(allSelected ? new Set() : new Set(selectableIds))}
-                className="mt-2 text-xs font-medium text-brand-600 hover:underline"
-              >
-                {allSelected ? 'Deselect all' : `Select all ${selectableIds.length} eligible`}
-              </button>
-            )}
-          </>
-        )}
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile label="Approved, not prepared" value={String(ready.length)} hint={money(ready.reduce((s, a) => s + a.amount, 0))} tone="brand" />
+        <StatTile
+          label="Awaiting verification / authorisation"
+          value={String(inProgress.filter((d) => d.status === 'pending' || d.status === 'under_verification').length)}
+          tone="amber"
+        />
+        <StatTile
+          label="Authorised / in transit"
+          value={String(inProgress.filter((d) => d.status === 'approved' || d.status === 'processing').length)}
+          hint={money(inProgress.filter((d) => d.status === 'approved' || d.status === 'processing').reduce((s, d) => s + d.netAmount, 0))}
+          tone="brand"
+        />
+        <StatTile label="Disbursed this month" value={money(thisMonth.reduce((s, d) => s + d.netAmount, 0))} hint={`${thisMonth.length} loan(s) net`} tone="green" />
+      </div>
 
-        {tab === 'register' && (
+      <Tabs tabs={tabs} active={tab} onChange={choose} />
+      <div className="mt-4">
+        {tab === 'ready' && (
           <Table
-            rowKey={(l) => l.id}
-            rows={loans.filter((l) => l.disbursement)}
+            rowKey={(a) => a.id}
+            rows={ready}
+            emptyMessage="No approved applications waiting."
+            onRowClick={(a) => navigate(`/applications/${a.id}`)}
             columns={[
-              { header: 'Loan', cell: (l) => l.id.slice(0, 8) },
-              { header: 'Borrower', cell: (l) => <BorrowerLink id={l.borrowerId} borrowers={borrowers} /> },
-              { header: 'Net disbursed', cell: (l) => formatMoney(l.netDisbursed, lender.currency) },
-              { header: 'Channel', cell: (l) => channelLabels[l.disbursement!.channel] },
-              { header: 'Reference', cell: (l) => l.disbursement!.reference },
-              { header: 'Date', cell: (l) => formatDateTime(l.disbursement!.date) },
-              { header: 'Approved / Disbursed by', cell: (l) => `${l.disbursement!.approvedBy} / ${l.disbursement!.disbursedBy}` },
+              { header: 'Application', cell: (a) => <span className="font-medium text-slate-800">{a.reference}</span> },
+              { header: 'Borrower', cell: (a) => borrowers.find((b) => b.id === a.borrowerId)?.fullName ?? '—' },
+              { header: 'Product', cell: (a) => products.find((p) => p.id === a.productId)?.name ?? '—' },
+              { header: 'Approved amount', cell: (a) => money(a.amount), sort: (a) => a.amount },
+              { header: 'Approved', cell: (a) => { const ap = a.approvals.filter((x) => x.decision === 'approved').at(-1); return ap ? `${formatDate(ap.date)} · ${ap.approverName}` : '—' } },
+              { header: 'Preferred method', cell: (a) => (a.disbursementMethod ? METHOD_LABEL[a.disbursementMethod] : '—') },
+              {
+                header: '',
+                cell: (a) =>
+                  canEdit && (
+                    <Button size="sm" onClick={(e) => { e.stopPropagation(); navigate(`/disbursement/prepare/${a.id}`) }}>
+                      Prepare
+                    </Button>
+                  ),
+              },
             ]}
           />
         )}
-      </div>
 
-      <Modal open={batchOpen} onClose={() => setBatchOpen(false)} title={`Batch disbursement — ${selectedApps.length} loans`} wide>
-        <BatchDisburseForm
-          apps={selectedApps}
-          total={selectedTotal}
-          currency={lender.currency}
-          busy={busy}
-          borrowerName={(id) => borrowers.find((b) => b.id === id)?.fullName ?? '—'}
-          onConfirm={async (batchChannel, prefix) => {
-            setBusy(true)
-            try {
-              const res = await disburseBatch(
-                selectedApps.map((a, i) => ({
-                  applicationId: a.id,
-                  channel: batchChannel,
-                  reference: `${prefix}-${String(i + 1).padStart(3, '0')}`,
-                })),
-              )
-              setSelected(new Set())
-              setBatchOpen(false)
-              void res
-            } finally {
-              setBusy(false)
-            }
-          }}
-        />
-      </Modal>
-
-      <Modal open={active !== null} onClose={() => setActive(null)} title="Confirm disbursement">
-        {active && (
-          <DisburseForm
-            application={active}
-            currentStaffName={currentStaff?.name ?? ''}
-            approverName={active.approvals.at(-1)?.approverName ?? ''}
-            channel={channel}
-            setChannel={setChannel}
-            reference={reference}
-            setReference={setReference}
-            onConfirm={async () => {
-              await disburseLoan(active.id, channel, reference)
-              setActive(null)
-            }}
+        {tab === 'progress' && (
+          <Table
+            rowKey={(d) => d.id}
+            rows={inProgress}
+            emptyMessage="Nothing in progress."
+            onRowClick={(d) => navigate(`/disbursement/${d.id}`)}
+            columns={[
+              { header: 'ID', cell: (d) => <span className="font-mono text-xs">{d.number}</span> },
+              { header: 'Borrower', cell: (d) => d.borrowerName },
+              { header: 'Net amount', cell: (d) => money(d.netAmount), sort: (d) => d.netAmount },
+              { header: 'Method', cell: (d) => METHOD_LABEL[d.method] },
+              { header: 'Prepared', cell: (d) => `${formatDate(d.preparedAt)} · ${d.staffNames.preparedBy}` },
+              {
+                header: 'Status',
+                cell: (d) => (
+                  <span className="flex flex-wrap items-center gap-1">
+                    <Badge tone={DISB_STATUS_TONE[d.status]} dot>{DISB_STATUS_LABEL[d.status]}</Badge>
+                    {d.requiresDualAuthorisation && <Badge tone="blue">2 authorisers</Badge>}
+                    {d.warnings.length > 0 && <Badge tone="amber">{d.warnings.length} warning(s)</Badge>}
+                  </span>
+                ),
+              },
+              { header: 'Next step', cell: (d) => <span className="text-xs font-medium text-brand-700">{NEXT_STEP[d.status]?.(d)}</span> },
+            ]}
           />
         )}
-      </Modal>
-    </div>
-  )
-}
 
-function BatchDisburseForm({
-  apps,
-  total,
-  currency,
-  busy,
-  borrowerName,
-  onConfirm,
-}: {
-  apps: Application[]
-  total: number
-  currency: string
-  busy: boolean
-  borrowerName: (id: string) => string
-  onConfirm: (channel: DisbursementChannel, referencePrefix: string) => void
-}) {
-  const [channel, setChannel] = useState<DisbursementChannel>('bank_transfer')
-  const [prefix, setPrefix] = useState(`BATCH-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`)
-
-  return (
-    <div className="space-y-4">
-      <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
-        <table className="min-w-full text-sm">
-          <tbody className="divide-y divide-slate-100">
-            {apps.map((a) => (
-              <tr key={a.id}>
-                <td className="px-3 py-2">{a.reference}</td>
-                <td className="px-3 py-2 text-slate-600">{borrowerName(a.borrowerId)}</td>
-                <td className="px-3 py-2 text-right font-medium">{formatMoney(a.amount, currency)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot className="border-t border-slate-200 bg-slate-50">
-            <tr>
-              <td className="px-3 py-2 font-semibold" colSpan={2}>
-                Total ({apps.length} loans)
-              </td>
-              <td className="px-3 py-2 text-right font-bold">{formatMoney(total, currency)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Channel — applied to all">
-          <select className={inputClass} value={channel} onChange={(e) => setChannel(e.target.value as DisbursementChannel)}>
-            <option value="bank_transfer">Bank transfer</option>
-            <option value="mobile_money">Mobile money</option>
-            <option value="cash">Cash</option>
-            <option value="supplier">Direct to supplier</option>
-          </select>
-        </Field>
-        <Field label="Reference prefix" hint="Each loan gets prefix-001, -002…">
-          <input className={inputClass} value={prefix} onChange={(e) => setPrefix(e.target.value)} />
-        </Field>
-      </div>
-
-      <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        Loans you approved yourself are excluded — the approver and the person releasing funds must differ.
-      </p>
-
-      <Button className="w-full" disabled={busy || !prefix.trim()} onClick={() => onConfirm(channel, prefix.trim())}>
-        {busy ? 'Releasing…' : `Release ${apps.length} loans`}
-      </Button>
-    </div>
-  )
-}
-
-function DisburseForm({
-  application,
-  currentStaffName,
-  approverName,
-  channel,
-  setChannel,
-  reference,
-  setReference,
-  onConfirm,
-}: {
-  application: Application
-  currentStaffName: string
-  approverName: string
-  channel: DisbursementChannel
-  setChannel: (c: DisbursementChannel) => void
-  reference: string
-  setReference: (r: string) => void
-  onConfirm: () => void
-}) {
-  const products = useStore((s) => s.products)
-  const lender = useStore((s) => s.lender)
-  const product = products.find((p) => p.id === application.productId)
-  const sameDoer = currentStaffName === approverName
-  const feesDeducted = product ? totalFeeAmount(product, application.amount, 'deducted') : 0
-  const savingsDeducted = product ? (application.amount * (product.compulsorySavingsPercent || 0)) / 100 : 0
-  const net = application.amount - feesDeducted - savingsDeducted
-
-  return (
-    <div className="space-y-4">
-      {sameDoer && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-          The approver and the person releasing funds must be different people. Switch to another staff account to disburse this
-          loan.
-        </div>
-      )}
-      <dl className="grid grid-cols-2 gap-y-2 text-sm">
-        <dt className="text-slate-400">Approved amount</dt>
-        <dd className="text-right font-medium">{formatMoney(application.amount, lender.currency)}</dd>
-        <dt className="text-slate-400">Fees deducted</dt>
-        <dd className="text-right font-medium">{formatMoney(feesDeducted, lender.currency)}</dd>
-        {savingsDeducted > 0 && (
-          <>
-            <dt className="text-slate-400">Compulsory savings</dt>
-            <dd className="text-right font-medium">{formatMoney(savingsDeducted, lender.currency)}</dd>
-          </>
+        {tab === 'register' && (
+          <div className="space-y-3">
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Download size={14} />}
+                onClick={() =>
+                  downloadCSV(
+                    `disbursement-register-${new Date().toISOString().slice(0, 10)}.csv`,
+                    ['Disbursement', 'Loan', 'Application', 'Borrower', 'Approved', 'Deductions', 'Net', 'Method', 'Reference', 'Prepared by', 'Authorised by', 'Processed by', 'Date', 'Status'],
+                    disbursements.map((d) => [
+                      d.number, d.loanNumber ?? '', d.applicationReference, d.borrowerName, d.approvedAmount,
+                      d.approvedAmount - d.netAmount, d.netAmount, METHOD_LABEL[d.method], d.transactionReference,
+                      d.staffNames.preparedBy, [d.staffNames.authorisedBy, d.staffNames.secondAuthorisedBy].filter(Boolean).join(' + '),
+                      d.staffNames.processedBy, d.confirmedAt ?? d.preparedAt, DISB_STATUS_LABEL[d.status],
+                    ]),
+                  )
+                }
+              >
+                Export CSV
+              </Button>
+            </div>
+            <Table
+              rowKey={(d) => d.id}
+              rows={disbursements}
+              pageSize={15}
+              filterPlaceholder="Filter by ID, loan, borrower or reference"
+              filterAccessor={(d) => `${d.number} ${d.loanNumber ?? ''} ${d.borrowerName} ${d.transactionReference}`}
+              onRowClick={(d) => navigate(`/disbursement/${d.id}`)}
+              columns={[
+                { header: 'ID', cell: (d) => <span className="font-mono text-xs">{d.number}</span>, sort: (d) => d.number },
+                { header: 'Loan', cell: (d) => <span className="font-mono text-xs">{d.loanNumber ?? '—'}</span> },
+                { header: 'Borrower', cell: (d) => d.borrowerName },
+                { header: 'Amount', cell: (d) => money(d.approvedAmount), sort: (d) => d.approvedAmount },
+                { header: 'Net', cell: (d) => money(d.netAmount), sort: (d) => d.netAmount },
+                { header: 'Method', cell: (d) => METHOD_LABEL[d.method] },
+                { header: 'Reference', cell: (d) => d.transactionReference || '—' },
+                { header: 'Date', cell: (d) => formatDateTime(d.confirmedAt ?? d.preparedAt), sort: (d) => d.confirmedAt ?? d.preparedAt },
+                { header: 'Status', cell: (d) => <Badge tone={DISB_STATUS_TONE[d.status]}>{DISB_STATUS_LABEL[d.status]}</Badge>, sort: (d) => d.status },
+              ]}
+            />
+          </div>
         )}
-        <dt className="text-slate-400">Borrower receives</dt>
-        <dd className="text-right font-semibold text-emerald-700">{formatMoney(net, lender.currency)}</dd>
-      </dl>
 
-      <Field label="Disbursement channel">
-        <select className={inputClass} value={channel} onChange={(e) => setChannel(e.target.value as DisbursementChannel)}>
-          <option value="mobile_money">Mobile money</option>
-          <option value="bank_transfer">Bank transfer</option>
-          <option value="supplier">Direct to supplier</option>
-          <option value="cash">Cash</option>
-        </select>
-      </Field>
-      <Field label="Reference / transaction number">
-        <input className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)} />
-      </Field>
+        {tab === 'ledger' && <LedgerPanel />}
+      </div>
+    </div>
+  )
+}
 
-      <Button className="w-full" disabled={sameDoer} onClick={onConfirm}>
-        Confirm and disburse
-      </Button>
+function LedgerPanel() {
+  const loadLedger = useStore((s) => s.loadLedger)
+  const disbursements = useStore((s) => s.disbursements)
+  const currency = useStore((s) => s.lender.currency)
+  const [data, setData] = useState<LedgerData | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    loadLedger().then(setData).catch((e) => setError(e instanceof Error ? e.message : 'Could not load the ledger'))
+  }, [loadLedger, disbursements])
+  const money = (n: number) => formatMoney(n, currency)
+  if (error) return <p className="text-sm text-red-700">{error}</p>
+  if (!data) return <p className="text-sm text-slate-400">Loading ledger…</p>
+  const r = data.reconciliation
+  const flow = [
+    ['Approved, awaiting disbursement', r.approvedAwaitingDisbursement],
+    ['Disbursed principal', r.disbursedPrincipal],
+    ['Repaid principal', r.repaidPrincipal],
+    ['Written off', r.writtenOffPrincipal],
+    ['Outstanding (ledger)', r.outstandingPrincipalLedger],
+  ] as const
+  const balanced = Math.abs(r.difference) < 0.01
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader
+          title="Reconciliation"
+          subtitle="Approved → Disbursed → Repaid → Outstanding, from ledger postings"
+          action={<Badge tone={balanced ? 'green' : 'red'} dot>{balanced ? 'Ledger agrees with loan records' : `Difference ${money(r.difference)}`}</Badge>}
+        />
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+          {flow.map(([k, v], i) => (
+            <div key={k} className={clsx('rounded-xl px-3 py-2.5', i === 4 ? 'bg-brand-50' : 'bg-slate-50')}>
+              <p className="text-[11px] text-slate-400">{k}</p>
+              <p className={clsx('font-semibold tabular-nums', i === 4 ? 'text-brand-800' : 'text-slate-800')}>{money(v)}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+          <Scale size={13} /> Disbursed − repaid − written off = {money(r.disbursedPrincipal - r.repaidPrincipal - r.writtenOffPrincipal)} · outstanding per loan records {money(r.outstandingPrincipalLoans)}
+        </p>
+      </Card>
+
+      <div className="grid gap-5 xl:grid-cols-3">
+        <Card>
+          <CardHeader title="Account balances" subtitle="Debit (+) / credit (−)" />
+          <table className="w-full text-sm">
+            <tbody className="divide-y divide-slate-100">
+              {data.accounts.map((a) => (
+                <tr key={a.code}>
+                  <td className="py-1.5 text-slate-600">{a.name}</td>
+                  <td className={clsx('py-1.5 text-right tabular-nums', a.balance < 0 ? 'text-slate-500' : 'text-slate-800')}>{money(a.balance)}</td>
+                </tr>
+              ))}
+              <tr className="font-semibold">
+                <td className="pt-2">Total</td>
+                <td className="pt-2 text-right tabular-nums">{money(data.accounts.reduce((s, a) => s + a.balance, 0))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </Card>
+        <div className="xl:col-span-2">
+          <Table
+            rowKey={(e) => e.id}
+            rows={data.entries}
+            pageSize={12}
+            filterPlaceholder="Filter by journal, loan or description"
+            filterAccessor={(e) => `${e.journal} ${e.loanNumber ?? ''} ${e.description} ${e.reference}`}
+            columns={[
+              { header: 'Journal', cell: (e) => <span className="font-mono text-xs">{e.journal}</span> },
+              { header: 'Date', cell: (e) => formatDate(e.date) },
+              { header: 'Account', cell: (e) => data.accounts.find((a) => a.code === e.account)?.name ?? e.account },
+              { header: 'Description', cell: (e) => <span className="text-xs">{e.description}</span> },
+              { header: 'Debit', cell: (e) => (e.debit ? money(e.debit) : '') },
+              { header: 'Credit', cell: (e) => (e.credit ? money(e.credit) : '') },
+            ]}
+          />
+        </div>
+      </div>
     </div>
   )
 }

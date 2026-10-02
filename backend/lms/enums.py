@@ -79,6 +79,7 @@ class LoanStatus(models.TextChoices):
     ACTIVE = "active"
     CLOSED = "closed"
     WRITTEN_OFF = "written_off"
+    REVERSED = "reversed"  # disbursement reversed before any repayment
 
 
 class InstalmentStatus(models.TextChoices):
@@ -94,6 +95,7 @@ class DisbursementChannel(models.TextChoices):
     BANK_TRANSFER = "bank_transfer"
     SUPPLIER = "supplier"
     CASH = "cash"
+    WALLET = "wallet"  # borrower's savings wallet with the lender
 
 
 class RepaymentChannel(models.TextChoices):

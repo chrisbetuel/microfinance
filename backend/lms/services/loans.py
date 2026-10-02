@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from lms.enums import InstalmentStatus, LoanStatus
 from lms.models import Loan, Repayment, ScheduleInstalment, SavingsTransaction
+from lms.services import ledger
 from lms.services import savings as savings_service
 from lms.services.loan_math import allocate_payment, generate_schedule, total_fee_amount
 
@@ -19,14 +20,24 @@ def _outstanding(schedule) -> float:
     return max(sum(float(i.total_due) - float(i.paid_amount) for i in schedule), 0.0)
 
 
+def next_loan_number(lender) -> str:
+    return f"LN-{Loan.objects.filter(lender=lender).count() + 1:06d}"
+
+
 def create_loan_from_application(
-    *, application, product, channel, reference, approved_by, disbursed_by, disbursed_on=None
+    *, application, product, channel, reference, approved_by, disbursed_by, disbursed_on=None,
+    fees_deducted=None, net_disbursed=None,
 ) -> Loan:
+    """Open the loan and activate its repayment schedule. Called only once the
+    disbursement transaction is confirmed (services/disbursements.complete)."""
     amount = float(application.amount)
     now = disbursed_on or timezone.now()
     rows = generate_schedule(product, amount, application.term_instalments, now, application.first_repayment_date)
-    fees_deducted = total_fee_amount(product, amount, "deducted")
     savings_deducted = round(amount * float(product.compulsory_savings_percent) / 100, 2)
+    if fees_deducted is None:
+        fees_deducted = total_fee_amount(product, amount, "deducted")
+    if net_disbursed is None:
+        net_disbursed = amount - fees_deducted - savings_deducted
 
     loan = Loan.objects.create(
         lender=application.lender,
@@ -37,7 +48,8 @@ def create_loan_from_application(
         group_id=application.group_id,
         principal=amount,
         schedule_principal=amount,
-        net_disbursed=amount - fees_deducted - savings_deducted,
+        loan_number=next_loan_number(application.lender),
+        net_disbursed=net_disbursed,
         fees_deducted=fees_deducted,
         savings_deducted=savings_deducted,
         status=LoanStatus.ACTIVE,
@@ -106,7 +118,7 @@ def post_repayment(*, loan, product, amount: float, channel, recorded_by: str) -
         loan.collateral.filter(status="active").update(status="released")
     loan.save(update_fields=fields)
 
-    return Repayment.objects.create(
+    repayment = Repayment.objects.create(
         lender=loan.lender,
         loan=loan,
         amount=amount,
@@ -120,12 +132,15 @@ def post_repayment(*, loan, product, amount: float, channel, recorded_by: str) -
         allocation_remainder=result.remainder,
         recorded_by=recorded_by,
     )
+    ledger.post_repayment(repayment, loan)
+    return repayment
 
 
-def reverse_repayment(*, repayment, loan, product, loan_repayments, reason: str) -> None:
+def reverse_repayment(*, repayment, loan, product, loan_repayments, reason: str, by_name: str = "") -> None:
     repayment.reversed = True
     repayment.reversal_reason = reason
     repayment.save(update_fields=["reversed", "reversal_reason"])
+    ledger.reverse_repayment(repayment, loan, by=by_name)
 
     remaining = sorted(
         (r for r in loan_repayments if not r.reversed and r.id != repayment.id),
@@ -159,3 +174,4 @@ def write_off(*, loan, reason: str, by_name: str) -> None:
     loan.closure_reason = f"Written off: {reason}"
     loan.save(update_fields=["status", "closed_at", "closure_reason"])
     loan.collateral.filter(status="active").update(status="seized")
+    ledger.post_write_off(loan, by=by_name)

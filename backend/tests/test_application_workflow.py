@@ -6,7 +6,7 @@ from datetime import date, timedelta
 import pytest
 
 from lms.models import Guarantor
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, release_loan
 
 
 @pytest.fixture
@@ -113,9 +113,8 @@ def test_full_workflow_with_return_and_partial_approval(t):
     assert stages == ["submitted", "under_assessment", "under_assessment", "pending_approval", "under_assessment",
                       "pending_approval", "approved"]
 
-    loan = t["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "mobile_money", "reference": "MM1"})
-    assert loan.status_code == 201, loan.content
-    assert loan.json()["principal"] == 900_000
+    loan = release_loan(t["cashier"], app['id'], "mobile_money", "MM1")
+    assert loan["principal"] == 900_000
     final = t["officer"].get(f"/applications/{app['id']}").json()
     assert final["events"][-1]["stage"] == "disbursed"
 
@@ -133,7 +132,7 @@ def test_first_repayment_date_shapes_schedule(t):
     app = t["officer"].post("/applications", _body(t, firstRepaymentDate=first.isoformat())).json()
     _assess(t["officer"], app["id"])
     t["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
-    loan = t["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "C1"}).json()
+    loan = release_loan(t["cashier"], app['id'], "cash", "C1")
     assert loan["schedule"][0]["dueDate"] == first.isoformat()
 
     bad = t["officer"].post("/applications", _body(t, firstRepaymentDate=date.today().isoformat()))
@@ -168,7 +167,7 @@ def test_guarantors_collateral_and_documents(t):
     # the application's collateral secures the loan at disbursement
     _assess(t["officer"], app["id"])
     t["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
-    loan = t["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "C2"}).json()
+    loan = release_loan(t["cashier"], app['id'], "cash", "C2")
     item = next(x for x in t["officer"].get("/collateral").json() if x["id"] == c["id"])
     assert item["status"] == "active"
     assert item["loanId"] == loan["id"]

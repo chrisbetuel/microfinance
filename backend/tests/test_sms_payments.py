@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pytest
 from django.core.management import call_command
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval, release_loan
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ def test_bulk_preview_then_send(t):
 
 def test_bulk_overdue_audience_only_targets_arrears(t):
     app = _approved_app(t, t["borrowers"][0])
-    t["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "R"})
+    release_loan(t["cashier"], app['id'], "cash", "R")
     call_command("age_loans", "--as-of", (date.today() + timedelta(days=45)).isoformat())
     preview = t["officer"].post("/sms/bulk", {"audience": "overdue", "message": "{amount_due}", "dryRun": True}).json()
     assert preview["recipients"] == 1 and preview["sample"][0]["name"] == "Mteja 0"
@@ -86,7 +86,7 @@ def test_auditor_cannot_send_sms(t, client):
 
 def test_collection_request_settles_into_a_repayment(t):
     app = _approved_app(t, t["borrowers"][1])
-    loan = t["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "R"}).json()
+    loan = release_loan(t["cashier"], app['id'], "cash", "R")
     due = loan["schedule"][0]["totalDue"]
 
     tx = t["cashier"].post("/payments/collect", {"loanId": loan["id"], "phone": "+255710000001", "amount": due, "network": "mpesa"})
@@ -117,33 +117,6 @@ def test_callback_requires_webhook_token(t, client):
 
 def test_collect_rejects_more_than_outstanding(t):
     app = _approved_app(t, t["borrowers"][1])
-    loan = t["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "R"}).json()
+    loan = release_loan(t["cashier"], app['id'], "cash", "R")
     r = t["cashier"].post("/payments/collect", {"loanId": loan["id"], "phone": "+1", "amount": loan["outstandingBalance"] + 5})
     assert r.status_code == 422
-
-
-def test_payout_opens_loan_only_when_confirmed(t):
-    app = _approved_app(t, t["borrowers"][2])
-    tx = t["cashier"].post("/payments/payout", {"applicationId": app["id"], "phone": "+255710000002", "network": "airtel"}).json()
-    assert tx["status"] == "pending" and tx["direction"] == "outbound"
-    assert tx["amount"] == 600_000 - 12_000  # 2% processing fee deducted
-    assert not [l for l in t["cashier"].get("/loans").json() if l["applicationId"] == app["id"]]
-
-    done = t["cashier"].post(f"/payments/{tx['id']}/simulate", {"outcome": "success"}).json()
-    assert done["status"] == "success" and done["loanId"]
-    loan = next(l for l in t["cashier"].get("/loans").json() if l["applicationId"] == app["id"])
-    assert loan["disbursement"]["channel"] == "mobile_money"
-
-
-def test_failed_payout_leaves_application_approved(t):
-    app = _approved_app(t, t["borrowers"][2])
-    tx = t["cashier"].post("/payments/payout", {"applicationId": app["id"], "phone": "+2", "network": "mpesa"}).json()
-    failed = t["cashier"].post(f"/payments/{tx['id']}/simulate", {"outcome": "failed"}).json()
-    assert failed["status"] == "failed"
-    assert t["officer"].get(f"/applications/{app['id']}").json()["status"] == "approved"
-
-
-def test_payout_respects_four_eyes(t):
-    app = _approved_app(t, t["borrowers"][2])
-    r = t["manager"].post("/payments/payout", {"applicationId": app["id"], "phone": "+2"})
-    assert r.status_code == 403  # the approver can't send the money

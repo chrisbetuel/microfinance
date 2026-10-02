@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval, release_loan
 
 
 @pytest.fixture
@@ -26,11 +26,7 @@ def approved_application(admin: Actor, branch: dict, client):
 
 def test_disburse_computes_net_and_schedule(approved_application):
     app = approved_application["app"]
-    resp = approved_application["cashier"].post(
-        f"/applications/{app['id']}/disburse", {"channel": "mobile_money", "reference": "MM-1"}
-    )
-    assert resp.status_code == 201, resp.content
-    loan = resp.json()
+    loan = release_loan(approved_application["cashier"], app["id"], "mobile_money", "MM-1")
     assert loan["feesDeducted"] == 24000
     assert loan["netDisbursed"] == 1_176_000
     assert len(loan["schedule"]) == 6
@@ -38,14 +34,18 @@ def test_disburse_computes_net_and_schedule(approved_application):
     assert first["principalDue"] == 200000
     assert first["interestDue"] == 48000
     assert first["totalDue"] == 248000
+    assert loan["loanNumber"].startswith("LN-")
     assert loan["disbursement"]["disbursedBy"] == approved_application["cashier"].staff["name"]
 
 
 def test_approver_cannot_also_disburse(approved_application):
     app = approved_application["app"]
-    resp = approved_application["manager"].post(
-        f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "C-1"}
-    )
+    cashier, manager = approved_application["cashier"], approved_application["manager"]
+    d = cashier.post("/disbursements", {"applicationId": app["id"], "method": "cash", "recipientName": "x"}).json()
+    cashier.post(f"/disbursements/{d['id']}/submit")
+    manager.post(f"/disbursements/{d['id']}/verify", {"destinationConfirmed": True, "overrideReason": "ok"})
+    manager.post(f"/disbursements/{d['id']}/authorise")
+    resp = manager.post(f"/disbursements/{d['id']}/release")
     assert resp.status_code == 403
 
 
@@ -61,14 +61,14 @@ def test_cannot_disburse_unapproved(admin: Actor, branch: dict, client):
             "declaredIncome": 900_000, "declaredExpenses": 200_000, "creditBureauConsent": True,
         },
     ).json()
-    resp = admin.post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "C"})
+    resp = admin.post("/disbursements", {"applicationId": app["id"], "method": "cash"})
     assert resp.status_code == 409
 
 
 def test_repayment_allocates_in_bucket_order(approved_application):
     app = approved_application["app"]
     cashier = approved_application["cashier"]
-    loan = cashier.post(f"/applications/{app['id']}/disburse", {"channel": "mobile_money", "reference": "MM-1"}).json()
+    loan = release_loan(cashier, app['id'], "mobile_money", "MM-1")
 
     resp = cashier.post("/repayments", {"loanId": loan["id"], "amount": 248000, "channel": "mobile_money"})
     assert resp.status_code == 201, resp.content
@@ -89,7 +89,7 @@ def test_full_repayment_closes_loan_and_reversal_reopens(approved_application):
     app = approved_application["app"]
     cashier = approved_application["cashier"]
     manager = approved_application["manager"]
-    loan = cashier.post(f"/applications/{app['id']}/disburse", {"channel": "mobile_money", "reference": "MM-1"}).json()
+    loan = release_loan(cashier, app['id'], "mobile_money", "MM-1")
     total_due = sum(i["totalDue"] for i in loan["schedule"])
 
     pay = cashier.post("/repayments", {"loanId": loan["id"], "amount": total_due, "channel": "bank"})

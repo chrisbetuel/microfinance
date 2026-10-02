@@ -54,7 +54,7 @@ class LenderSerializer(serializers.ModelSerializer):
             "id", "name", "licence_number", "licence_expiry", "address", "phone", "email",
             "logo_initials", "brand_color", "currency", "language", "plan_level",
             "staff_limit", "active_loan_limit", "sms_balance", "sms_sender_name", "sms_sender_approved",
-            "session_timeout_minutes",
+            "session_timeout_minutes", "dual_authorisation_threshold",
         ]
 
 
@@ -70,6 +70,7 @@ class LenderUpdateSerializer(serializers.Serializer):
     currency = serializers.CharField(required=False)
     language = serializers.CharField(required=False)
     session_timeout_minutes = serializers.IntegerField(required=False, min_value=1, max_value=1440)
+    dual_authorisation_threshold = serializers.FloatField(required=False, min_value=0)
 
 
 # ----------------------------------------------------------------------- branches
@@ -540,7 +541,7 @@ class LoanSerializer(serializers.ModelSerializer):
         model = models.Loan
         fields = [
             "id", "lender_id", "branch_id", "application_id", "borrower_id", "product_id",
-            "group_id",
+            "group_id", "loan_number",
             "principal", "net_disbursed", "fees_deducted", "savings_deducted", "status", "outstanding_balance",
             "days_in_arrears", "arrears_amount", "restructure_count", "restructured_at",
             "closed_at", "closure_reason", "disbursement", "created_at", "schedule",
@@ -930,3 +931,118 @@ class PaymentCallbackSerializer(serializers.Serializer):
 
 class PaymentSimulateSerializer(serializers.Serializer):
     outcome = serializers.ChoiceField(choices=["success", "failed"])
+
+
+# ---------------------------------------------------------------- disbursements
+
+class DisbursementEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.DisbursementEvent
+        fields = ["id", "status", "action", "note", "changes", "by", "at"]
+
+
+class DisbursementSerializer(serializers.ModelSerializer):
+    application_id = Uuid()
+    loan_id = Uuid(allow_null=True)
+    payment_id = Uuid(allow_null=True)
+    prepared_by_id = Uuid()
+    verified_by_id = Uuid(allow_null=True)
+    authorised_by_id = Uuid(allow_null=True)
+    second_authorised_by_id = Uuid(allow_null=True)
+    processed_by_id = Uuid(allow_null=True)
+    application_reference = serializers.CharField(source="application.reference", read_only=True)
+    borrower_id = Uuid(source="application.borrower_id")
+    borrower_name = serializers.CharField(source="application.borrower.full_name", read_only=True)
+    customer_number = serializers.CharField(source="application.borrower.customer_number", read_only=True)
+    loan_number = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
+    staff_names = serializers.SerializerMethodField()
+    checklist = serializers.SerializerMethodField()
+    events = DisbursementEventSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = models.Disbursement
+        fields = [
+            "id", "number", "application_id", "application_reference", "borrower_id", "borrower_name",
+            "customer_number", "loan_id", "loan_number", "status",
+            "approved_amount", "fees", "fees_total", "insurance", "savings_deducted", "other_deductions", "net_amount",
+            "method", "recipient_type", "recipient_name", "recipient_provider", "recipient_account",
+            "authorisation_note", "destination_verified", "warnings",
+            "requires_dual_authorisation", "checks", "override_reason",
+            "prepared_by_id", "prepared_at", "verified_by_id", "verified_at", "authorised_by_id", "authorised_at",
+            "second_authorised_by_id", "second_authorised_at", "processed_by_id", "processed_at", "confirmed_at",
+            "reversed_at", "staff_names", "checklist",
+            "transaction_reference", "payment_id", "payment_status", "failure_reason", "cancel_reason",
+            "reversal_reason", "created_at", "events",
+        ]
+
+    def get_loan_number(self, obj):
+        return obj.loan.loan_number if obj.loan_id else None
+
+    def get_payment_status(self, obj):
+        return obj.payment.status if obj.payment_id else None
+
+    def get_checklist(self, obj):
+        from lms.services.disbursements import checks
+
+        return checks(obj)
+
+    def get_staff_names(self, obj):
+        def name(s):
+            return s.name if s else ""
+
+        return {
+            "prepared_by": name(obj.prepared_by), "verified_by": name(obj.verified_by),
+            "authorised_by": name(obj.authorised_by), "second_authorised_by": name(obj.second_authorised_by),
+            "processed_by": name(obj.processed_by), "confirmed_by": name(obj.confirmed_by),
+            "reversed_by": name(obj.reversed_by),
+        }
+
+
+class DeductionSerializer(serializers.Serializer):
+    label = serializers.CharField(max_length=80)
+    amount = serializers.FloatField(min_value=0)
+
+
+class DisbursementPrepareSerializer(serializers.Serializer):
+    application_id = serializers.UUIDField()
+    method = serializers.ChoiceField(choices=enums.DisbursementChannel.choices)
+    recipient_type = serializers.ChoiceField(choices=["borrower", "third_party"], required=False, default="borrower")
+    recipient_name = serializers.CharField(required=False, allow_blank=True, default="")
+    recipient_provider = serializers.CharField(required=False, allow_blank=True, default="")
+    recipient_account = serializers.CharField(required=False, allow_blank=True, default="")
+    authorisation_note = serializers.CharField(required=False, allow_blank=True, default="")
+    insurance = serializers.FloatField(required=False, min_value=0, default=0)
+    other_deductions = DeductionSerializer(many=True, required=False, default=list)
+
+
+class DisbursementUpdateSerializer(serializers.Serializer):
+    method = serializers.ChoiceField(choices=enums.DisbursementChannel.choices, required=False)
+    recipient_type = serializers.ChoiceField(choices=["borrower", "third_party"], required=False)
+    recipient_name = serializers.CharField(required=False, allow_blank=True)
+    recipient_provider = serializers.CharField(required=False, allow_blank=True)
+    recipient_account = serializers.CharField(required=False, allow_blank=True)
+    authorisation_note = serializers.CharField(required=False, allow_blank=True)
+    insurance = serializers.FloatField(required=False, min_value=0)
+    other_deductions = DeductionSerializer(many=True, required=False)
+
+
+class DisbursementActionSerializer(serializers.Serializer):
+    destination_confirmed = serializers.BooleanField(required=False, default=False)
+    override_reason = serializers.CharField(required=False, allow_blank=True, default="")
+    reference = serializers.CharField(required=False, allow_blank=True, default="")
+    success = serializers.BooleanField(required=False, default=True)
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class LedgerEntrySerializer(serializers.ModelSerializer):
+    loan_id = Uuid(allow_null=True)
+    loan_number = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.LedgerEntry
+        fields = ["id", "journal", "date", "account", "debit", "credit", "description", "reference", "loan_id",
+                  "loan_number", "created_by"]
+
+    def get_loan_number(self, obj):
+        return obj.loan.loan_number if obj.loan_id else None

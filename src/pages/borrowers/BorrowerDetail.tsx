@@ -45,6 +45,7 @@ const channelLabels: Record<DisbursementChannel, string> = {
   bank_transfer: 'Bank transfer',
   supplier: 'Direct to supplier',
   cash: 'Cash',
+  wallet: 'Internal wallet',
 }
 
 export default function BorrowerDetail() {

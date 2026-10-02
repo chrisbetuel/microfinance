@@ -11,6 +11,7 @@ import type {
   BorrowerStatus,
   Collateral,
   Integrations,
+  LedgerData,
   PaymentNetwork,
   PaymentTransaction,
   Guarantor,
@@ -22,7 +23,9 @@ import type {
   GroupDetails,
   GroupMemberRole,
   GroupMemberStatus,
-  DisbursementChannel,
+  Disbursement,
+  DisbursementInput,
+  DisbursementPreview,
   Holiday,
   Lender,
   Loan,
@@ -81,6 +84,7 @@ const EMPTY_LENDER: Lender = {
   smsSenderName: '',
   smsSenderApproved: false,
   sessionTimeoutMinutes: 20,
+  dualAuthorisationThreshold: 5_000_000,
 }
 
 interface StoreState {
@@ -103,6 +107,7 @@ interface StoreState {
   groups: BorrowerGroup[]
   collateral: Collateral[]
   payments: PaymentTransaction[]
+  disbursements: Disbursement[]
   integrations: Integrations | null
 
   bootstrap: () => Promise<void>
@@ -139,7 +144,6 @@ interface StoreState {
   sendBulkSms: (input: BulkSmsInput) => Promise<{ batch: string; recipients: number; sent: number; failed: number }>
   refreshPayments: () => Promise<void>
   requestPayment: (input: { loanId: string; phone: string; amount: number; network: PaymentNetwork }) => Promise<PaymentTransaction>
-  payout: (input: { applicationId: string; phone: string; network: PaymentNetwork }) => Promise<PaymentTransaction>
   simulatePayment: (id: string, outcome: 'success' | 'failed') => Promise<void>
   updateCollateral: (id: string, patch: Partial<Pick<Collateral, 'status' | 'estimatedValue' | 'valuationDate' | 'loanId'>>) => Promise<void>
   setBorrowerBlacklist: (borrowerId: string, blacklisted: boolean, reason: string | null) => Promise<void>
@@ -173,10 +177,16 @@ interface StoreState {
   addApplicationDocument: (applicationId: string, type: string, name: string) => Promise<void>
   verifyApplicationDocument: (applicationId: string, documentId: string, status: ApplicationDocument['status'], note?: string) => Promise<void>
 
-  disburseLoan: (applicationId: string, channel: DisbursementChannel, reference: string) => Promise<void>
-  disburseBatch: (
-    items: { applicationId: string; channel: DisbursementChannel; reference: string }[],
-  ) => Promise<{ disbursed: number; skipped: { applicationId: string; reason: string }[] }>
+  refreshDisbursements: () => Promise<void>
+  previewDisbursement: (input: DisbursementInput) => Promise<DisbursementPreview>
+  prepareDisbursement: (input: DisbursementInput) => Promise<Disbursement>
+  updateDisbursement: (id: string, patch: Partial<Omit<DisbursementInput, 'applicationId'>>) => Promise<void>
+  disbursementAction: (
+    id: string,
+    action: 'submit' | 'verify' | 'authorise' | 'release' | 'confirm' | 'cancel' | 'reverse',
+    body?: { destinationConfirmed?: boolean; overrideReason?: string; reference?: string; success?: boolean; reason?: string },
+  ) => Promise<Disbursement>
+  loadLedger: (loanId?: string) => Promise<LedgerData>
 
   recordRepayment: (loanId: string, amount: number, channel: Repayment['channel']) => Promise<Repayment>
   reverseRepayment: (repaymentId: string, reason: string) => Promise<void>
@@ -234,6 +244,7 @@ const EMPTY = {
   groups: [],
   collateral: [],
   payments: [],
+  disbursements: [],
   integrations: null,
 }
 
@@ -253,6 +264,11 @@ export const useStore = create<StoreState>()((set, get) => {
       if (!(err instanceof ApiError) || err.status !== 403) throw err
     }
     set({ notifications: await api.get<Notification[]>('/notifications') })
+  }
+
+  async function loadDisbursements() {
+    const disbursements = await api.get<Disbursement[]>('/disbursements').catch(() => [] as Disbursement[])
+    set({ disbursements })
   }
 
   async function loadPayments() {
@@ -308,7 +324,7 @@ export const useStore = create<StoreState>()((set, get) => {
       groups,
       collateral,
     })
-    await Promise.all([refreshAudit(), loadPayments()])
+    await Promise.all([refreshAudit(), loadPayments(), loadDisbursements()])
   }
 
   return {
@@ -485,14 +501,6 @@ export const useStore = create<StoreState>()((set, get) => {
       return tx
     },
 
-    payout: async (input) => {
-      const tx = await api.post<PaymentTransaction>('/payments/payout', input)
-      set((s) => ({ payments: [tx, ...s.payments] }))
-      if (tx.status === 'failed') toast.error('Payout failed', tx.failureReason)
-      else toast.success('Payout sent to gateway', `${tx.reference} — the loan opens once the transfer is confirmed`)
-      return tx
-    },
-
     simulatePayment: async (id, outcome) => {
       const tx = await api.post<PaymentTransaction>('/payments/' + id + '/simulate', { outcome })
       const [loans, repayments, applications] = await Promise.all([
@@ -501,6 +509,7 @@ export const useStore = create<StoreState>()((set, get) => {
         api.get<Application[]>('/applications'),
       ])
       set((s) => ({ payments: s.payments.map((p) => (p.id === id ? tx : p)), loans, repayments, applications }))
+      if (tx.direction === 'outbound') await loadDisbursements()
       if (tx.status === 'success') toast.success(tx.direction === 'inbound' ? 'Payment received' : 'Payout confirmed — loan opened', tx.receipt)
       else toast.error('Payment failed', tx.failureReason)
       await refreshAudit()
@@ -619,34 +628,54 @@ export const useStore = create<StoreState>()((set, get) => {
       toast.success(status === 'verified' ? 'Document verified' : status === 'rejected' ? 'Document rejected' : 'Document reset')
     },
 
-    disburseLoan: async (applicationId, channel, reference) => {
-      await api.post<Loan>(`/applications/${applicationId}/disburse`, { channel, reference })
-      const [applications, loans] = await Promise.all([
-        api.get<Application[]>('/applications'),
-        api.get<Loan[]>('/loans'),
-      ])
-      set({ applications, loans })
-      toast.success('Loan disbursed')
+    refreshDisbursements: loadDisbursements,
+
+    previewDisbursement: (input) => api.post<DisbursementPreview>('/disbursements/preview', input),
+
+    prepareDisbursement: async (input) => {
+      const d = await api.post<Disbursement>('/disbursements', input)
+      set((st) => ({ disbursements: [d, ...st.disbursements] }))
+      toast.success(`${d.number} prepared`, 'Send it for verification when ready')
+      await refreshAudit()
+      return d
+    },
+
+    updateDisbursement: async (id, patch) => {
+      const d = await api.patch<Disbursement>(`/disbursements/${id}`, patch)
+      set((st) => ({ disbursements: st.disbursements.map((x) => (x.id === id ? d : x)) }))
+      toast.success(`${d.number} updated`, 'Verification and authorisation start again')
       await refreshAudit()
     },
 
-    disburseBatch: async (items) => {
-      const res = await api.post<{ disbursed: unknown[]; skipped: { applicationId: string; reason: string }[] }>(
-        '/disbursement/batch',
-        { items },
-      )
-      const [applications, loans] = await Promise.all([
-        api.get<Application[]>('/applications'),
-        api.get<Loan[]>('/loans'),
-      ])
-      set({ applications, loans })
-      const disbursed = res.disbursed.length
-      if (disbursed > 0) toast.success(`${disbursed} loan${disbursed > 1 ? 's' : ''} disbursed`)
-      if (res.skipped.length > 0)
-        toast.error(`${res.skipped.length} skipped`, res.skipped.map((s) => s.reason)[0])
+    disbursementAction: async (id, action, body = {}) => {
+      const d = await api.post<Disbursement>(`/disbursements/${id}/${action}`, body)
+      set((st) => ({ disbursements: st.disbursements.map((x) => (x.id === id ? d : x)) }))
+      if (['successful', 'reversed', 'failed', 'processing'].includes(d.status)) {
+        const [applications, loans, collateral, payments] = await Promise.all([
+          api.get<Application[]>('/applications'),
+          api.get<Loan[]>('/loans'),
+          api.get<Collateral[]>('/collateral'),
+          api.get<PaymentTransaction[]>('/payments').catch(() => get().payments),
+        ])
+        set({ applications, loans, collateral, payments })
+      }
+      const messages: Record<string, [string, string?]> = {
+        submit: ['Sent for verification'],
+        verify: ['Verified', 'Ready for authorisation'],
+        authorise: d.status === 'approved' ? ['Authorised for release'] : ['First authorisation recorded', 'A second authoriser is required'],
+        release: d.status === 'failed' ? ['Transfer rejected', d.failureReason] : ['Money released', d.method === 'mobile_money' ? 'Waiting for the gateway to confirm' : 'Confirm once the transaction goes through'],
+        confirm: d.status === 'successful' ? [`Loan ${d.loanNumber} is active`, 'Repayment schedule started'] : ['Marked as failed', d.failureReason],
+        cancel: ['Disbursement cancelled'],
+        reverse: ['Disbursement reversed', 'The application is back to approved'],
+      }
+      const [title, detail] = messages[action]
+      if (d.status === 'failed') toast.error(title, detail)
+      else toast.success(title, detail)
       await refreshAudit()
-      return { disbursed, skipped: res.skipped }
+      return d
     },
+
+    loadLedger: (loanId) => api.get<LedgerData>(loanId ? `/ledger?loanId=${loanId}` : '/ledger'),
 
     recordRepayment: async (loanId, amount, channel) => {
       const repayment = await api.post<Repayment>('/repayments', { loanId, amount, channel })

@@ -25,6 +25,8 @@ from lms.models import (
     Branch,
     Collateral,
     CollectionActivity,
+    Disbursement,
+    LedgerEntry,
     GroupAttendance,
     GroupHistoryEvent,
     GroupMeeting,
@@ -42,6 +44,7 @@ from lms.models import (
 )
 from lms.services import aging
 from lms.services import applications as application_service
+from lms.services import disbursements as disbursement_service
 from lms.services import loans as loan_service
 from lms.services import notify
 from lms.services.audit import record as audit_record
@@ -92,6 +95,8 @@ class Command(BaseCommand):
     @staticmethod
     def _wipe(lender):
         """Tear a workspace down in dependency order (several FKs are PROTECT)."""
+        LedgerEntry.objects.filter(lender=lender).delete()
+        Disbursement.objects.filter(lender=lender).delete()
         Repayment.objects.filter(lender=lender).delete()
         Loan.objects.filter(lender=lender).delete()
         CollectionActivity.objects.filter(lender=lender).delete()
@@ -254,6 +259,44 @@ class Command(BaseCommand):
 
         assessment_of = {"recommend": "recommended", "caution": "further_review", "decline": "not_recommended"}
 
+        def release_through_workflow(app, borrower, upto, when):
+            """Prepare → verify → authorise → release → confirm, by different people, stopping at `upto`."""
+            prep = disbursement_service.prepare(cashier, app, {
+                "method": "mobile_money", "recipient_type": "borrower", "recipient_name": borrower.full_name,
+                "recipient_provider": "mpesa", "recipient_account": borrower.phone,
+            })
+            steps = ["pending", "under_verification", "approved", "successful"]
+            if steps.index(upto) >= 1:
+                disbursement_service.submit(cashier, prep)
+            if steps.index(upto) >= 2:
+                disbursement_service.verify(admin, prep, destination_confirmed=True,
+                                            override_reason="Identity and phone confirmed in person at the branch")
+                disbursement_service.authorise(admin, prep)
+            if upto == "successful":
+                disbursement_service.release(cashier, prep)
+                prep.refresh_from_db()
+                tx = prep.payment
+                tx.status = PaymentTransaction.Status.SUCCESS
+                tx.receipt = f"MP{when:%y%m%d}{ref_n:04d}"
+                tx.completed_at = when
+                tx.save(update_fields=["status", "receipt", "completed_at"])
+                disbursement_service.complete(prep, reference=tx.receipt, by=cashier, disbursed_on=when)
+                tx.loan = prep.loan
+                tx.created_at = when
+                tx.save(update_fields=["loan", "created_at"])
+                ApplicationEvent.objects.filter(application=app, stage="disbursed").update(at=when)
+            Disbursement.objects.filter(pk=prep.pk).update(
+                prepared_at=when - timedelta(hours=5), created_at=when - timedelta(hours=5),
+                verified_at=when - timedelta(hours=3) if steps.index(upto) >= 2 else None,
+                authorised_at=when - timedelta(hours=2) if steps.index(upto) >= 2 else None,
+                processed_at=when - timedelta(minutes=5) if upto == "successful" else None,
+            )
+            for i, ev in enumerate(prep.events.order_by("at")):
+                ev.at = when - timedelta(hours=5) + timedelta(minutes=50 * i)
+                ev.save(update_fields=["at"])
+            prep.refresh_from_db()
+            return prep
+
         def make_application(borrower, product, amount, term, days_ago, decision=None, disburse_days_ago=None,
                              stage="pending_approval"):
             """Walk an application through the workflow up to `stage` (or the decision)."""
@@ -342,19 +385,8 @@ class Command(BaseCommand):
                 notify.decision(lender, borrower, app)
             if disburse_days_ago is not None:
                 disbursed_on = now - timedelta(days=disburse_days_ago)
-                loan = loan_service.create_loan_from_application(
-                    application=app, product=product, channel="mobile_money",
-                    reference=f"MM-{ref_n:05d}", approved_by=approver.name, disbursed_by=cashier.name,
-                    disbursed_on=disbursed_on,
-                )
-                app.status = ApplicationStatus.DISBURSED
-                app.save(update_fields=["status"])
-                ApplicationEvent.objects.create(application=app, stage="disbursed", label="Disbursed via mobile money",
-                                                note=f"Reference MM-{ref_n:05d}", by=cashier.name, at=disbursed_on)
-                audit_record(cashier, "disbursed", "loan", loan.id,
-                             f"{loan.net_disbursed:,.0f} disbursed via mobile money")
-                notify.disbursed(lender, borrower, loan)
-                return app, loan
+                d = release_through_workflow(app, borrower, upto="successful", when=disbursed_on)
+                return app, d.loan
             return app, None
 
         healthy = [b for b in borrowers if not b.blacklisted]
@@ -392,6 +424,12 @@ class Command(BaseCommand):
                 audit_record(cashier, "recorded", "repayment", rp.id,
                              f"{float(rp.amount):,.0f} received, receipt {rp.receipt_number}")
                 notify.receipt(lender, borrower, rp)
+
+        # approved loans waiting at different points of the disbursement workflow
+        for borrower, stage in zip(healthy[11:13], ["approved", "under_verification"]):
+            app, _ = make_application(borrower, products[0], 900_000, 6, days_ago=4, decision="approved")
+            if stage == "under_verification":
+                release_through_workflow(app, borrower, upto="under_verification", when=now - timedelta(days=1))
 
         if grp is not None:  # members' loans were taken as group loans
             member_ids = [m.borrower_id for m in grp.memberships.all()]

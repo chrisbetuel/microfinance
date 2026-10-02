@@ -15,15 +15,18 @@ export const loanStatusLabel: Record<LoanStatus, string> = {
   active: 'Active',
   closed: 'Completed',
   written_off: 'Defaulted (written off)',
+  reversed: 'Reversed (disbursement undone)',
 }
 const loanTone: Record<LoanStatus, BadgeTone> = {
   pending_disbursement: 'amber',
   active: 'blue',
   closed: 'green',
   written_off: 'red',
+  reversed: 'slate',
 }
 
 const loanNumber = (loans: Loan[], loan: Loan) => {
+  if (loan.loanNumber) return loan.loanNumber
   const ordered = [...loans].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   return `#${String(ordered.findIndex((l) => l.id === loan.id) + 1).padStart(3, '0')}`
 }

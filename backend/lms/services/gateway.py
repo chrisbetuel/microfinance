@@ -8,7 +8,7 @@ from django.utils import timezone
 from lms.enums import LoanStatus
 from lms.integrations import payments
 from lms.models import Loan, LoanProduct, PaymentTransaction
-from lms.services import audit, disbursement, notify
+from lms.services import audit, disbursements, notify
 from lms.services import loans as loan_service
 
 NETWORKS = {"mpesa": "M-Pesa", "tigopesa": "Tigo Pesa", "airtel": "Airtel Money", "halopesa": "HaloPesa", "bank": "Bank"}
@@ -44,26 +44,6 @@ def start_collection(*, staff, loan: Loan, phone: str, amount: float, network: s
     return tx
 
 
-def start_payout(*, staff, application, phone: str, network: str) -> PaymentTransaction:
-    """Send the loan's net amount to the customer. The loan is only created
-    once the gateway confirms the transfer."""
-    disbursement.check(staff, application)
-    if PaymentTransaction.objects.filter(application=application, status=PaymentTransaction.Status.PENDING).exists():
-        raise GatewayError("A payout for this application is already in progress")
-    amount = disbursement.net_amount(application)
-    provider = payments.get_provider()
-    tx = PaymentTransaction.objects.create(
-        lender=application.lender, reference=_reference(application.lender, "DSB"),
-        direction=PaymentTransaction.Direction.OUTBOUND, network=network, provider=provider.name,
-        phone=phone, amount=amount, borrower=application.borrower, application=application, initiated_by=staff,
-    )
-    result = provider.payout(phone, amount, tx.reference, network)
-    _record_start(tx, result)
-    audit.record(staff, "requested", "payout", tx.id,
-                 f"{NETWORKS.get(network, network)} payout of {amount:,.0f} to {phone} for {application.reference} ({tx.reference})")
-    return tx
-
-
 def _record_start(tx: PaymentTransaction, result) -> None:
     if result.accepted:
         tx.provider_ref = result.provider_ref[:100]
@@ -89,6 +69,8 @@ def settle(tx: PaymentTransaction, *, success: bool, receipt: str = "", reason: 
             tx.status = PaymentTransaction.Status.FAILED
             tx.failure_reason = (reason or "Declined or timed out")[:250]
             tx.save(update_fields=["status", "failure_reason", "receipt", "completed_at", "callback_payload"])
+            if tx.direction == PaymentTransaction.Direction.OUTBOUND:
+                disbursements.on_payout_settled(tx, success=False, reason=tx.failure_reason)
             return tx
 
         tx.status = PaymentTransaction.Status.SUCCESS
@@ -129,9 +111,7 @@ def _after_collection(lender_id, loan_id, repayment_id):
 
 
 def _apply_payout(tx: PaymentTransaction) -> None:
-    try:
-        loan = disbursement.disburse(tx.initiated_by, tx.application, "mobile_money", tx.receipt or tx.provider_ref)
-    except disbursement.DisburseError as exc:
-        tx.failure_reason = f"Money sent but the loan could not be opened: {exc} — reconcile manually"
-        return
-    tx.loan = loan
+    """A payout started by a disbursement's release: confirming it opens the loan."""
+    tx.save()
+    disbursements.on_payout_settled(tx, success=True)
+    tx.refresh_from_db()

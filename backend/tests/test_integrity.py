@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pytest
 from django.core.management import call_command
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval, release_loan
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def _loan(t, borrower, amount=600_000):
     app = _apply(t, borrower, amount).json()
     forward_for_approval(app['id'])
     t["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
-    return t["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "R"}).json()
+    return release_loan(t["cashier"], app['id'], "cash", "R")
 
 
 def test_duplicate_nida_and_phone_are_rejected(team):
@@ -81,7 +81,11 @@ def test_creator_cannot_disburse_own_application(team, client):
     }).json()
     forward_for_approval(app['id'])
     team["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
-    r = team["admin"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "X"})
+    d = team["cashier"].post("/disbursements", {"applicationId": app["id"], "method": "cash", "recipientName": b["fullName"]}).json()
+    team["cashier"].post(f"/disbursements/{d['id']}/submit")
+    team["manager"].post(f"/disbursements/{d['id']}/verify", {"destinationConfirmed": True, "overrideReason": "seen in person"})
+    team["manager"].post(f"/disbursements/{d['id']}/authorise")
+    r = team["admin"].post(f"/disbursements/{d['id']}/release")
     assert r.status_code == 403
 
 

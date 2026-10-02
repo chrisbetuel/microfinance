@@ -38,6 +38,7 @@ export interface Lender {
   smsSenderName: string
   smsSenderApproved: boolean
   sessionTimeoutMinutes: number
+  dualAuthorisationThreshold: number
 }
 
 export interface Branch {
@@ -377,7 +378,7 @@ export interface Collateral {
   createdAt: string
 }
 
-export type LoanStatus = 'pending_disbursement' | 'active' | 'closed' | 'written_off'
+export type LoanStatus = 'pending_disbursement' | 'active' | 'closed' | 'written_off' | 'reversed'
 
 export interface ScheduleInstalment {
   period: number
@@ -393,10 +394,135 @@ export interface ScheduleInstalment {
   wasLate: boolean
 }
 
-export type DisbursementChannel = 'mobile_money' | 'bank_transfer' | 'supplier' | 'cash'
+export type DisbursementChannel = 'mobile_money' | 'bank_transfer' | 'supplier' | 'cash' | 'wallet'
+
+export type DisbursementStatus =
+  | 'pending'
+  | 'under_verification'
+  | 'approved'
+  | 'processing'
+  | 'successful'
+  | 'failed'
+  | 'cancelled'
+  | 'reversed'
+
+export interface Disbursement {
+  id: string
+  number: string
+  applicationId: string
+  applicationReference: string
+  borrowerId: string
+  borrowerName: string
+  customerNumber: string
+  loanId: string | null
+  loanNumber: string | null
+  status: DisbursementStatus
+  approvedAmount: number
+  fees: { name: string; amount: number }[]
+  feesTotal: number
+  insurance: number
+  savingsDeducted: number
+  otherDeductions: { label: string; amount: number }[]
+  netAmount: number
+  method: DisbursementChannel
+  recipientType: 'borrower' | 'third_party'
+  recipientName: string
+  recipientProvider: string
+  recipientAccount: string
+  authorisationNote: string
+  destinationVerified: boolean
+  warnings: string[]
+  requiresDualAuthorisation: boolean
+  checks: Record<string, boolean>
+  checklist: Record<string, boolean>
+  overrideReason: string
+  preparedById: string
+  preparedAt: string
+  verifiedById: string | null
+  verifiedAt: string | null
+  authorisedById: string | null
+  authorisedAt: string | null
+  secondAuthorisedById: string | null
+  secondAuthorisedAt: string | null
+  processedById: string | null
+  processedAt: string | null
+  confirmedAt: string | null
+  reversedAt: string | null
+  staffNames: {
+    preparedBy: string
+    verifiedBy: string
+    authorisedBy: string
+    secondAuthorisedBy: string
+    processedBy: string
+    confirmedBy: string
+    reversedBy: string
+  }
+  transactionReference: string
+  paymentId: string | null
+  paymentStatus: 'pending' | 'success' | 'failed' | null
+  failureReason: string
+  cancelReason: string
+  reversalReason: string
+  createdAt: string
+  events: { id: string; status: DisbursementStatus; action: string; note: string; changes: Record<string, { from: string; to: string }>; by: string; at: string }[]
+}
+
+export interface DisbursementInput {
+  applicationId: string
+  method: DisbursementChannel
+  recipientType: 'borrower' | 'third_party'
+  recipientName: string
+  recipientProvider: string
+  recipientAccount: string
+  authorisationNote: string
+  insurance: number
+  otherDeductions: { label: string; amount: number }[]
+}
+
+export interface DisbursementPreview {
+  approvedAmount: number
+  fees: { name: string; amount: number }[]
+  feesTotal: number
+  insurance: number
+  savingsDeducted: number
+  otherDeductions: { label: string; amount: number }[]
+  netAmount: number
+  warnings: string[]
+  requiresDualAuthorisation: boolean
+  dualAuthorisationThreshold: number
+}
+
+export interface LedgerEntry {
+  id: string
+  journal: string
+  date: string
+  account: string
+  debit: number
+  credit: number
+  description: string
+  reference: string
+  loanId: string | null
+  loanNumber: string | null
+  createdBy: string
+}
+
+export interface LedgerData {
+  entries: LedgerEntry[]
+  accounts: { code: string; name: string; balance: number }[]
+  reconciliation: {
+    approvedAwaitingDisbursement: number
+    disbursedPrincipal: number
+    repaidPrincipal: number
+    writtenOffPrincipal: number
+    outstandingPrincipalLedger: number
+    outstandingPrincipalLoans: number
+    difference: number
+  }
+}
 
 export interface Loan {
   id: string
+  loanNumber: string
   applicationId: string
   borrowerId: string
   productId: string

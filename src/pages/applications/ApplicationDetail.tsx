@@ -106,7 +106,7 @@ export default function ApplicationDetail() {
                 Offer letter
               </Button>
             )}
-            {application.status === 'approved' && canDisburse && <Button onClick={() => navigate('/disbursement')}>Go to disbursement</Button>}
+            {application.status === 'approved' && canDisburse && <Button onClick={() => navigate(`/disbursement/prepare/${application.id}`)}>Prepare disbursement</Button>}
           </div>
         }
       />

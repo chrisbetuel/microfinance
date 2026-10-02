@@ -104,6 +104,15 @@ function ProfileTab() {
               onChange={(e) => setForm({ ...form, sessionTimeoutMinutes: Number(e.target.value) })}
             />
           </Field>
+          <Field label="Two authorisers needed from" hint="Disbursements of this amount or more need two different authorisers. 0 turns it off.">
+            <input
+              type="number"
+              min={0}
+              className={inputClass}
+              value={form.dualAuthorisationThreshold}
+              onChange={(e) => setForm({ ...form, dualAuthorisationThreshold: Number(e.target.value) })}
+            />
+          </Field>
           {canEdit && (
             <div className="sm:col-span-2">
               <Button type="submit">Save changes</Button>

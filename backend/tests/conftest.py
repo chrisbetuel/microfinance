@@ -146,3 +146,42 @@ def forward_for_approval(application_id) -> None:
     app.assessed_by_id = app.created_by_id
     app.assessed_at = timezone.now()
     app.save()
+
+
+def release_loan(actor: Actor, application_id, channel: str = "cash", reference: str = "REF-1") -> dict:
+    """Run an approved application through the controlled disbursement workflow —
+    prepared and released by `actor`, verified and authorised by another
+    supervisor of the same lender — and return the opened loan as the API renders
+    it. For tests about what happens after disbursement; test_disbursement.py
+    covers the workflow itself."""
+    from lms.models import Application, PaymentTransaction, Staff
+    from lms.services import disbursements, gateway
+
+    app = Application.objects.select_related("lender", "borrower").get(pk=application_id)
+    clerk = Staff.objects.get(pk=actor.staff["id"])
+    approver_ids = list(app.approvals.values_list("approver_id", flat=True))
+    boss = (
+        Staff.objects.filter(lender=app.lender, role__in=["lender_admin", "branch_manager", "credit_committee"])
+        .exclude(pk=clerk.pk).exclude(pk__in=approver_ids).first()
+        or Staff.objects.filter(lender=app.lender, role__in=["lender_admin", "branch_manager", "credit_committee"])
+        .exclude(pk=clerk.pk).first()
+    )
+    if boss is None:
+        boss = Staff.objects.create(lender=app.lender, email=f"authoriser-{str(app.lender_id)[:8]}@test.co",
+                                    name="Disbursement Authoriser", role="lender_admin")
+    b = app.borrower
+    d = disbursements.prepare(clerk, app, {
+        "method": channel, "recipient_type": "borrower", "recipient_name": b.full_name,
+        "recipient_provider": "mpesa" if channel == "mobile_money" else "Test Bank", "recipient_account": b.phone,
+    })
+    disbursements.submit(clerk, d)
+    disbursements.verify(boss, d, destination_confirmed=True, override_reason="test fixture")
+    disbursements.authorise(boss, d)
+    disbursements.release(clerk, d, reference=reference)
+    d.refresh_from_db()
+    if channel == "mobile_money":
+        gateway.settle(PaymentTransaction.objects.get(pk=d.payment_id), success=True, receipt=reference)
+    else:
+        disbursements.confirm(clerk, d, success=True, reference=reference)
+    d.refresh_from_db()
+    return actor.get(f"/loans/{d.loan_id}").json()

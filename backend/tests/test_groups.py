@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval, release_loan
 
 
 @pytest.fixture
@@ -61,8 +61,8 @@ def test_application_can_be_tied_to_a_group(ctx):
     forward_for_approval(app.json()['id'])
     ctx["manager"].post(f"/applications/{app.json()['id']}/decision", {"decision": "approved", "comment": "ok"})
     cashier = make_staff(ctx["admin"], ctx["officer"]._client, role="cashier", branch_id=ctx["branch"]["id"], email="gc@test.co")
-    loan = cashier.post(f"/applications/{app.json()['id']}/disburse", {"channel": "cash", "reference": "G1"})
-    assert loan.json()["groupId"] == grp["id"]
+    loan = release_loan(cashier, app.json()['id'], "cash", "G1")
+    assert loan["groupId"] == grp["id"]
 
 
 def test_non_member_cannot_borrow_against_group(ctx):

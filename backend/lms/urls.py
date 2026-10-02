@@ -51,8 +51,11 @@ urlpatterns = [
     path("applications/<uuid:application_id>/documents", v.ApplicationDocumentsView.as_view()),
     path("applications/<uuid:application_id>/documents/<uuid:document_id>", v.ApplicationDocumentDetailView.as_view()),
     path("applications/<uuid:application_id>/decision", v.ApplicationDecisionView.as_view()),
-    path("applications/<uuid:application_id>/disburse", v.ApplicationDisburseView.as_view()),
-    path("disbursement/batch", v.DisbursementBatchView.as_view()),
+    path("disbursements", v.DisbursementsView.as_view()),
+    path("disbursements/preview", v.DisbursementPreviewView.as_view()),
+    path("disbursements/<uuid:disbursement_id>", v.DisbursementDetailView.as_view()),
+    path("disbursements/<uuid:disbursement_id>/<str:action>", v.DisbursementActionView.as_view()),
+    path("ledger", v.LedgerView.as_view()),
 
     path("loans", v.LoansView.as_view()),
     path("loans/<uuid:loan_id>", v.LoanDetailView.as_view()),
@@ -78,7 +81,6 @@ urlpatterns = [
     path("sms/bulk", v.SmsBulkView.as_view()),
     path("payments", v.PaymentsView.as_view()),
     path("payments/collect", v.PaymentCollectView.as_view()),
-    path("payments/payout", v.PaymentPayoutView.as_view()),
     path("payments/callback", v.PaymentCallbackView.as_view()),
     path("payments/<uuid:payment_id>/simulate", v.PaymentSimulateView.as_view()),
 

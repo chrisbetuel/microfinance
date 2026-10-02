@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval, release_loan
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def test_disbursement_deducts_compulsory_savings(ctx):
     ).json()
     forward_for_approval(app['id'])
     ctx["manager"].post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
-    loan = ctx["cashier"].post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "R1"}).json()
+    loan = release_loan(ctx["cashier"], app['id'], "cash", "R1")
 
     assert loan["savingsDeducted"] == 100_000  # 10% of 1,000,000
     # net = principal - fees(2%) - savings(10%)

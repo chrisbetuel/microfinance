@@ -34,6 +34,7 @@ export const DISBURSEMENT_LABEL: Record<DisbursementChannel, string> = {
   bank_transfer: 'Bank transfer',
   supplier: 'Pay supplier directly',
   cash: 'Cash at branch',
+  wallet: 'Internal wallet / savings',
 }
 
 /** Monthly figures the application's financial assessment works from (mirrors services/applications.repayment_capacity). */

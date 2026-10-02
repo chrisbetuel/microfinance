@@ -33,6 +33,8 @@ class Lender(models.Model):
     sms_sender_approved = models.BooleanField(default=False)
     # Minutes of inactivity before a signed-in user is automatically logged out.
     session_timeout_minutes = models.IntegerField(default=20)
+    # disbursements of this amount or more need two different authorisers (0 = never)
+    dual_authorisation_threshold = models.DecimalField(max_digits=14, decimal_places=2, default=5_000_000)
     created_at = models.DateTimeField(default=timezone.now)
 
 
@@ -382,6 +384,7 @@ class Loan(models.Model):
     lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="loans")
     branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="+")
     application = models.OneToOneField(Application, on_delete=models.PROTECT, related_name="loan")
+    loan_number = models.CharField(max_length=20, blank=True, default="", db_index=True)  # LN-000245
     borrower = models.ForeignKey(Borrower, on_delete=models.PROTECT, related_name="loans")
     product = models.ForeignKey(LoanProduct, on_delete=models.PROTECT, related_name="+")
     group = models.ForeignKey("BorrowerGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="loans")
@@ -798,3 +801,109 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class Disbursement(models.Model):
+    """One attempt to release an approved loan. See services/disbursements.py."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending"                        # prepared
+        UNDER_VERIFICATION = "under_verification"
+        APPROVED = "approved"                      # authorised for release
+        PROCESSING = "processing"                  # money released, awaiting confirmation
+        SUCCESSFUL = "successful"
+        FAILED = "failed"
+        CANCELLED = "cancelled"
+        REVERSED = "reversed"
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="disbursements")
+    number = models.CharField(max_length=20, db_index=True)  # DIS-000124
+    application = models.ForeignKey(Application, on_delete=models.RESTRICT, related_name="disbursements")
+    loan = models.ForeignKey("Loan", on_delete=models.SET_NULL, null=True, blank=True, related_name="disbursements")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    # amounts
+    approved_amount = models.DecimalField(max_digits=14, decimal_places=2)
+    fees = models.JSONField(default=list, blank=True)  # [{name, amount}]
+    fees_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    insurance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    savings_deducted = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    other_deductions = models.JSONField(default=list, blank=True)  # [{label, amount}]
+    net_amount = models.DecimalField(max_digits=14, decimal_places=2)
+
+    # destination
+    method = models.CharField(max_length=20, choices=enums.DisbursementChannel.choices)
+    recipient_type = models.CharField(max_length=12, default="borrower")  # borrower | third_party
+    recipient_name = models.CharField(max_length=200, blank=True, default="")
+    recipient_provider = models.CharField(max_length=100, blank=True, default="")  # bank / network
+    recipient_account = models.CharField(max_length=100, blank=True, default="")  # account or phone
+    authorisation_note = models.CharField(max_length=250, blank=True, default="")
+    destination_verified = models.BooleanField(default=False)
+    warnings = models.JSONField(default=list, blank=True)
+
+    # controls
+    requires_dual_authorisation = models.BooleanField(default=False)
+    checks = models.JSONField(default=dict, blank=True)
+    override_reason = models.CharField(max_length=250, blank=True, default="")
+    prepared_by = models.ForeignKey(Staff, on_delete=models.RESTRICT, related_name="+")
+    prepared_at = models.DateTimeField(default=timezone.now)
+    verified_by = models.ForeignKey(Staff, on_delete=models.RESTRICT, null=True, blank=True, related_name="+")
+    verified_at = models.DateTimeField(null=True, blank=True)
+    authorised_by = models.ForeignKey(Staff, on_delete=models.RESTRICT, null=True, blank=True, related_name="+")
+    authorised_at = models.DateTimeField(null=True, blank=True)
+    second_authorised_by = models.ForeignKey(Staff, on_delete=models.RESTRICT, null=True, blank=True, related_name="+")
+    second_authorised_at = models.DateTimeField(null=True, blank=True)
+    processed_by = models.ForeignKey(Staff, on_delete=models.RESTRICT, null=True, blank=True, related_name="+")
+    processed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_by = models.ForeignKey(Staff, on_delete=models.RESTRICT, null=True, blank=True, related_name="+")
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+    # transaction
+    transaction_reference = models.CharField(max_length=100, blank=True, default="")
+    payment = models.ForeignKey("PaymentTransaction", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    failure_reason = models.CharField(max_length=250, blank=True, default="")
+    cancel_reason = models.CharField(max_length=250, blank=True, default="")
+    reversal_reason = models.CharField(max_length=250, blank=True, default="")
+    reversed_by = models.ForeignKey(Staff, on_delete=models.RESTRICT, null=True, blank=True, related_name="+")
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class DisbursementEvent(models.Model):
+    id = uuid_pk()
+    disbursement = models.ForeignKey(Disbursement, on_delete=models.CASCADE, related_name="events")
+    status = models.CharField(max_length=20, choices=Disbursement.Status.choices)
+    action = models.CharField(max_length=150)
+    note = models.TextField(blank=True, default="")
+    changes = models.JSONField(default=dict, blank=True)
+    by = models.CharField(max_length=150, blank=True, default="")
+    at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["at"]
+
+
+class LedgerEntry(models.Model):
+    """One line of a balanced journal. Never edited: mistakes are reversed with a new journal."""
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="ledger_entries")
+    journal = models.CharField(max_length=20, db_index=True)  # JNL-000001; lines of one posting share it
+    date = models.DateTimeField(default=timezone.now)
+    account = models.CharField(max_length=30, db_index=True)
+    debit = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    credit = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    description = models.CharField(max_length=250)
+    reference = models.CharField(max_length=100, blank=True, default="")
+    loan = models.ForeignKey("Loan", on_delete=models.RESTRICT, null=True, blank=True, related_name="ledger_entries")
+    disbursement = models.ForeignKey(Disbursement, on_delete=models.RESTRICT, null=True, blank=True, related_name="ledger_entries")
+    repayment = models.ForeignKey("Repayment", on_delete=models.RESTRICT, null=True, blank=True, related_name="ledger_entries")
+    created_by = models.CharField(max_length=150, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["date", "journal"]

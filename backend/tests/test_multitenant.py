@@ -4,7 +4,7 @@ repayments or audit trail."""
 
 import pytest
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval, release_loan
 
 
 def build_tenant(client, tag: str) -> dict:
@@ -39,7 +39,7 @@ def build_tenant(client, tag: str) -> dict:
     ).json()
     forward_for_approval(app['id'])
     manager.post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
-    loan = cashier.post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": f"R{tag}"}).json()
+    loan = release_loan(cashier, app['id'], "cash", f"R{tag}")
     repayment = admin.post(
         "/repayments", {"loanId": loan["id"], "amount": loan["schedule"][0]["totalDue"], "channel": "cash"}
     ).json()
@@ -102,9 +102,7 @@ def test_cross_tenant_writes_are_rejected(two_tenants):
     assert admin_b.post(
         f"/applications/{a['app']['id']}/decision", {"decision": "declined", "comment": "z"}
     ).status_code in bad
-    assert admin_b.post(
-        f"/applications/{a['app']['id']}/disburse", {"channel": "cash", "reference": "z"}
-    ).status_code in bad
+    assert admin_b.post("/disbursements", {"applicationId": a["app"]["id"], "method": "cash"}).status_code in bad
     assert admin_b.post("/repayments", {"loanId": a["loan"]["id"], "amount": 100, "channel": "cash"}).status_code in bad
     assert admin_b.post(f"/repayments/{a['repayment']['id']}/reverse", {"reason": "z"}).status_code in bad
     assert admin_b.patch(f"/staff/{a['manager'].staff['id']}", {"active": False}).status_code in bad

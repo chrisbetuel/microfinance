@@ -26,6 +26,8 @@ from lms.models import (
     Branch,
     Collateral,
     CollectionActivity,
+    Disbursement,
+    LedgerEntry,
     GroupAttendance,
     GroupDocument,
     GroupHistoryEvent,
@@ -50,6 +52,7 @@ from lms.permissions import (
     IsSupervisor,
     can_approve_application,
     has_section,
+    has_section_access,
     section_editor,
 )
 from lms.models import Notification
@@ -57,7 +60,8 @@ from lms.services import applications as application_service
 from lms.services import (
     audit,
     collections as collections_service,
-    disbursement as disbursement_service,
+    disbursements as disbursement_service,
+    ledger as ledger_service,
     gateway as gateway_service,
     loans as loan_service,
     notify,
@@ -1077,63 +1081,6 @@ class ApplicationDocumentDetailView(APIView):
         return _application_response(request.user.lender, application.pk)
 
 
-DisburseError = disbursement_service.DisburseError
-
-
-def _disburse_one(request_user, application, channel, reference):
-    return disbursement_service.disburse(request_user, application, channel, reference)
-
-
-class ApplicationDisburseView(APIView):
-    permission_classes = [IsAuthenticated, section_editor("disbursement")]
-
-    def post(self, request, application_id):
-        lender = request.user.lender
-        application = application_qs(lender).filter(pk=application_id).first()
-        if application is None:
-            raise NotFound("Application not found")
-        data = validated(ser.DisburseSerializer, request.data)
-        try:
-            loan = _disburse_one(request.user, application, data["channel"], data["reference"])
-        except DisburseError as exc:
-            msg = str(exc)
-            raise PermissionDenied(msg) if ("different" in msg) else Conflict(msg)
-        return Response(
-            ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data,
-            status=status.HTTP_201_CREATED,
-        )
-
-
-class DisbursementBatchView(APIView):
-    """Release several approved loans in one go — the finance team's daily run."""
-
-    permission_classes = [IsAuthenticated, section_editor("disbursement")]
-
-    def post(self, request):
-        lender = request.user.lender
-        data = validated(ser.BatchDisburseSerializer, request.data)
-        disbursed, skipped = [], []
-        for item in data["items"]:
-            application = application_qs(lender).filter(pk=item["application_id"]).first()
-            if application is None:
-                skipped.append({"applicationId": str(item["application_id"]), "reason": "Application not found"})
-                continue
-            try:
-                loan = _disburse_one(request.user, application, item["channel"], item["reference"])
-                disbursed.append(loan)
-            except DisburseError as exc:
-                skipped.append({"applicationId": str(application.id), "reason": str(exc)})
-        return Response(
-            {
-                "disbursed": ser.LoanSerializer(
-                    Loan.objects.prefetch_related("schedule").filter(pk__in=[l.pk for l in disbursed]), many=True
-                ).data,
-                "skipped": skipped,
-            },
-            status=status.HTTP_201_CREATED if disbursed else status.HTTP_200_OK,
-        )
-
-
 # ------------------------------------------------------------------------ loans
 
 class LoansView(APIView):
@@ -1319,7 +1266,7 @@ class RepaymentReverseView(APIView):
         with transaction.atomic():
             loan_service.reverse_repayment(
                 repayment=repayment, loan=loan, product=product,
-                loan_repayments=loan_repayments, reason=data["reason"],
+                loan_repayments=loan_repayments, reason=data["reason"], by_name=request.user.name,
             )
             audit.record(request.user, "reversed", "repayment", repayment.id, f"Reversal reason: {data['reason']}")
         repayment.refresh_from_db()
@@ -2049,24 +1996,6 @@ class PaymentCollectView(APIView):
         return Response(ser.PaymentTransactionSerializer(tx).data, status=status.HTTP_201_CREATED)
 
 
-class PaymentPayoutView(APIView):
-    permission_classes = [IsAuthenticated, section_editor("disbursement")]
-
-    def post(self, request):
-        data = validated(ser.PaymentPayoutSerializer, request.data)
-        app = application_qs(request.user.lender).filter(pk=data["application_id"]).select_related("borrower").first()
-        if app is None:
-            raise NotFound("Application not found")
-        try:
-            tx = gateway_service.start_payout(staff=request.user, application=app, phone=data["phone"], network=data["network"])
-        except disbursement_service.DisburseError as exc:
-            msg = str(exc)
-            raise PermissionDenied(msg) if "different" in msg else Conflict(msg)
-        except gateway_service.GatewayError as exc:
-            raise Conflict(str(exc))
-        return Response(ser.PaymentTransactionSerializer(tx).data, status=status.HTTP_201_CREATED)
-
-
 class PaymentCallbackView(APIView):
     """Webhook for the payment gateway. Authenticated by a shared secret header,
     not a staff login. Idempotent."""
@@ -2113,3 +2042,138 @@ class PaymentSimulateView(APIView):
         tx = gateway_service.settle(tx, success=outcome == "success", receipt=receipt,
                                     reason="Customer declined (simulated)", payload={"simulated": True})
         return Response(ser.PaymentTransactionSerializer(tx).data)
+
+
+# ---------------------------------------------------------------- disbursements
+#
+# Prepared → under verification → authorised → processing → successful.
+# See services/disbursements.py; the loan only exists once the transfer is confirmed.
+
+def disbursement_qs(lender):
+    return Disbursement.objects.filter(lender=lender).select_related(
+        "application", "application__borrower", "loan", "prepared_by", "verified_by", "authorised_by",
+        "second_authorised_by", "processed_by", "confirmed_by", "reversed_by", "payment",
+    ).prefetch_related("events")
+
+
+def _disbursement_or_404(request, disbursement_id):
+    d = disbursement_qs(request.user.lender).filter(pk=disbursement_id).first()
+    if d is None:
+        raise NotFound("Disbursement not found")
+    return d
+
+
+def _run(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except disbursement_service.DisbursementError as exc:
+        if exc.status == 403:
+            raise PermissionDenied(str(exc))
+        if exc.status == 422:
+            raise UnprocessableEntity(str(exc))
+        raise Conflict(str(exc))
+
+
+def _disbursement_response(request, d, code=status.HTTP_200_OK):
+    fresh = disbursement_qs(request.user.lender).get(pk=d.pk)
+    return Response(ser.DisbursementSerializer(fresh).data, status=code)
+
+
+class DisbursementsView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("disbursement")]
+
+    def get(self, request):
+        return Response(ser.DisbursementSerializer(disbursement_qs(request.user.lender), many=True).data)
+
+    def post(self, request):
+        data = validated(ser.DisbursementPrepareSerializer, request.data)
+        application = application_qs(request.user.lender).filter(pk=data.pop("application_id")).first()
+        if application is None:
+            raise NotFound("Application not found")
+        d = _run(disbursement_service.prepare, request.user, application, data)
+        return _disbursement_response(request, d, status.HTTP_201_CREATED)
+
+
+class DisbursementPreviewView(APIView):
+    """The breakdown and destination warnings for a disbursement being prepared."""
+
+    permission_classes = [IsAuthenticated, section_editor("disbursement")]
+
+    def post(self, request):
+        data = validated(ser.DisbursementPrepareSerializer, request.data)
+        application = application_qs(request.user.lender).filter(pk=data["application_id"]).first()
+        if application is None:
+            raise NotFound("Application not found")
+        parts = disbursement_service.breakdown(
+            application, insurance=data.get("insurance", 0), other_deductions=data.get("other_deductions", []),
+        )
+        warnings = disbursement_service.destination_warnings(
+            application, method=data.get("method", ""), recipient_type=data.get("recipient_type", "borrower"),
+            name=data.get("recipient_name", ""), provider=data.get("recipient_provider", ""),
+            account=data.get("recipient_account", ""),
+        )
+        threshold = float(request.user.lender.dual_authorisation_threshold or 0)
+        return Response({
+            **parts, "warnings": warnings,
+            "requires_dual_authorisation": threshold > 0 and parts["approved_amount"] >= threshold,
+            "dual_authorisation_threshold": threshold,
+        })
+
+
+class DisbursementDetailView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("disbursement")]
+
+    def get(self, request, disbursement_id):
+        d = _disbursement_or_404(request, disbursement_id)
+        return Response(ser.DisbursementSerializer(d).data)
+
+    def patch(self, request, disbursement_id):
+        d = _disbursement_or_404(request, disbursement_id)
+        data = validated(ser.DisbursementUpdateSerializer, request.data)
+        d = _run(disbursement_service.update, request.user, d, data)
+        return _disbursement_response(request, d)
+
+
+class DisbursementActionView(APIView):
+    """POST /disbursements/<id>/<action> for submit, verify, authorise, release, confirm, cancel and reverse."""
+
+    permission_classes = [IsAuthenticated, section_editor("disbursement")]
+
+    def post(self, request, disbursement_id, action):
+        d = _disbursement_or_404(request, disbursement_id)
+        data = validated(ser.DisbursementActionSerializer, request.data)
+        s = disbursement_service
+        handlers = {
+            "submit": lambda: s.submit(request.user, d),
+            "verify": lambda: s.verify(request.user, d, destination_confirmed=data["destination_confirmed"],
+                                       override_reason=data["override_reason"]),
+            "authorise": lambda: s.authorise(request.user, d),
+            "release": lambda: s.release(request.user, d, reference=data["reference"]),
+            "confirm": lambda: s.confirm(request.user, d, success=data["success"], reference=data["reference"],
+                                         reason=data["reason"]),
+            "cancel": lambda: s.cancel(request.user, d, reason=data["reason"]),
+            "reverse": lambda: s.reverse(request.user, d, reason=data["reason"]),
+        }
+        if action not in handlers:
+            raise NotFound("Unknown disbursement action")
+        d = _run(handlers[action])
+        return _disbursement_response(request, d)
+
+
+class LedgerView(APIView):
+    """Journal lines (optionally for one loan) plus account balances and the reconciliation."""
+
+    def get(self, request):
+        if not (has_section_access(request.user.role, "disbursement") or has_section_access(request.user.role, "reports")):
+            raise PermissionDenied("You don't have access to the ledger")
+        lender = request.user.lender
+        balances = ledger_service.balances(lender)
+        rows = LedgerEntry.objects.filter(lender=lender).select_related("loan")
+        if request.query_params.get("loanId"):
+            rows = rows.filter(loan_id=request.query_params["loanId"])
+        rows = rows.order_by("-date", "-journal")[: int(request.query_params.get("limit") or 300)]
+        return Response({
+            "entries": ser.LedgerEntrySerializer(rows, many=True).data,
+            "accounts": [{"code": code, "name": name, "balance": balances[code]} for code, name in ledger_service.ACCOUNTS.items()],
+            "reconciliation": ledger_service.reconciliation(lender),
+        })

@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval
+from tests.conftest import Actor, borrower_payload, make_staff, product_payload, forward_for_approval, release_loan
 
 
 @pytest.fixture
@@ -20,7 +20,7 @@ def cashier_ctx(admin: Actor, branch: dict, client):
     ).json()
     forward_for_approval(app['id'])
     manager.post(f"/applications/{app['id']}/decision", {"decision": "approved", "comment": "ok"})
-    loan = cashier.post(f"/applications/{app['id']}/disburse", {"channel": "cash", "reference": "C1"}).json()
+    loan = release_loan(cashier, app['id'], "cash", "C1")
     return {"cashier": cashier, "manager": manager, "loan": loan}
 
 
