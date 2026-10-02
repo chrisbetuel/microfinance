@@ -85,7 +85,7 @@ export function Table<T>({
         </div>
       )}
 
-      <div className="max-h-[70vh] overflow-auto rounded-2xl border border-slate-200/80 bg-white shadow-[var(--shadow-card)]">
+      <div className="max-h-[70vh] overflow-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(16,24,20,0.04)]">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm">
             <tr>

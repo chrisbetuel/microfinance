@@ -4,7 +4,7 @@ import { formatMoney } from '../../lib/format'
 import { collectionsByChannel } from '../../lib/reports'
 import type { Repayment } from '../../types'
 
-const PALETTE = ['#6366f1', '#10b981', '#f59e0b', '#38bdf8', '#f43f5e', '#8b5cf6', '#64748b']
+const PALETTE = ['#14705d', '#f5b82e', '#f59e0b', '#38bdf8', '#f43f5e', '#8b5cf6', '#64748b']
 
 export function CollectionsDonut({
   repayments,

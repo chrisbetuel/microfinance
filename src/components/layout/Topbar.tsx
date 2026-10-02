@@ -1,4 +1,4 @@
-import { LogOut, MessageSquare, ChevronDown, Search, Sun, Moon, Monitor, UserCircle } from 'lucide-react'
+import { LogOut, MessageSquare, Search, Sun, Moon, Monitor, UserCircle, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
@@ -11,6 +11,9 @@ import { useTheme, type ThemeChoice } from '../../lib/theme'
 const themeOrder: ThemeChoice[] = ['light', 'dark', 'system']
 const themeIcon = { light: Sun, dark: Moon, system: Monitor }
 
+const iconBtn =
+  'flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800'
+
 function ThemeToggle() {
   const choice = useTheme((s) => s.choice)
   const setChoice = useTheme((s) => s.setChoice)
@@ -18,11 +21,11 @@ function ThemeToggle() {
   return (
     <button
       onClick={() => setChoice(themeOrder[(themeOrder.indexOf(choice) + 1) % themeOrder.length])}
-      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700"
+      className={iconBtn}
       title={`Theme: ${choice} — click to change`}
       aria-label={`Theme: ${choice}`}
     >
-      <Icon size={16} />
+      <Icon size={17} />
     </button>
   )
 }
@@ -37,43 +40,43 @@ export function Topbar() {
   if (!currentUser) return null
 
   return (
-    <header className="relative z-30 flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-6 py-3 backdrop-blur-sm">
-      <button
-        onClick={openCommandPalette}
-        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm text-slate-400 transition-colors hover:border-slate-300 hover:bg-white"
-      >
-        <Search size={14} />
-        <span className="hidden sm:inline">Search…</span>
-        <kbd className="ml-2 hidden rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-400 sm:inline">
-          Ctrl K
-        </kbd>
+    <header className="relative z-30 flex items-center justify-between bg-white px-7 py-3.5">
+      {/* who's signed in */}
+      <button onClick={() => navigate('/profile')} className="flex items-center gap-3 text-left">
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
+          {initials(currentUser.name)}
+        </span>
+        <span>
+          <span className="block text-[15px] font-semibold leading-tight text-slate-900">{currentUser.name}</span>
+          <span className="block text-[11px] text-slate-400">{STAFF_ROLE_LABELS[currentUser.role]}</span>
+        </span>
       </button>
 
-      <div className="flex items-center gap-3">
-        <div className="hidden items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-100 sm:flex">
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={openCommandPalette}
+          className="mr-2 flex w-56 items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-400 transition-colors hover:border-slate-300"
+        >
+          <Search size={15} />
+          <span className="flex-1 text-left">Search</span>
+          <kbd className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">Ctrl K</kbd>
+        </button>
+
+        <span
+          className="mr-1 hidden items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 lg:flex"
+          title="SMS credits remaining"
+        >
           <MessageSquare size={13} />
-          SMS balance: <span className="tabular-nums font-semibold">{lender.smsBalance.toLocaleString()}</span>
-        </div>
+          <span className="tabular-nums font-semibold">{lender.smsBalance.toLocaleString()}</span>
+        </span>
 
         <ThemeToggle />
-
         <NotificationBell />
 
         <div className="relative">
-          <button
-            onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-2 rounded-full border border-slate-200 py-1 pl-1 pr-2.5 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-semibold text-white shadow-sm">
-              {initials(currentUser.name)}
-            </span>
-            <span className="text-left">
-              <span className="block text-xs font-semibold text-slate-900">{currentUser.name}</span>
-              <span className="block text-[11px] text-slate-400">{STAFF_ROLE_LABELS[currentUser.role]}</span>
-            </span>
-            <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <button onClick={() => setOpen((v) => !v)} className={iconBtn} aria-label="Account menu">
+            <Settings size={17} />
           </button>
-
           {open && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
@@ -88,19 +91,18 @@ export function Topbar() {
                     setOpen(false)
                     navigate('/profile')
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                 >
                   <UserCircle size={14} className="text-slate-400" />
                   My profile
                 </button>
-                <div className="border-t border-slate-100" />
                 <button
                   onClick={() => {
                     setOpen(false)
                     logout()
                     navigate('/login', { replace: true })
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                 >
                   <LogOut size={14} className="text-slate-400" />
                   Sign out

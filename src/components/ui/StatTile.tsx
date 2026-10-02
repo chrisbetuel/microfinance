@@ -15,7 +15,7 @@ function Sparkline({ points, tone }: { points: number[]; tone: keyof typeof tone
   const min = Math.min(...points)
   const span = max - min || 1
   const stroke =
-    tone === 'green' ? '#10b981' : tone === 'red' ? '#ee0033' : tone === 'amber' ? '#f59e0b' : '#6366f1'
+    tone === 'green' ? '#10b981' : tone === 'red' ? '#ee0033' : tone === 'amber' ? '#f59e0b' : '#14705d'
   const d = points
     .map((p, i) => {
       const x = (i / (points.length - 1)) * 100
@@ -54,9 +54,7 @@ export function StatTile({
   return (
     <div
       className={clsx(
-        'group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-4 pl-5 shadow-[var(--shadow-card)] transition-all hover:-translate-y-0.5 hover:border-slate-300/80 hover:shadow-[var(--shadow-card-hover)]',
-        'before:absolute before:inset-y-3 before:left-0 before:w-1 before:rounded-full before:opacity-70 before:transition-opacity group-hover:before:opacity-100',
-        t.accent,
+        'group relative overflow-hidden rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(16,24,20,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]',
       )}
     >
       <div className="flex items-start justify-between">

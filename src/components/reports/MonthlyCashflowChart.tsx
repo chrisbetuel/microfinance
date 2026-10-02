@@ -31,8 +31,8 @@ export function MonthlyCashflowChart({
                 <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
               </linearGradient>
               <linearGradient id="gradDisbursed" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="#6366f1" stopOpacity={0.02} />
+                <stop offset="0%" stopColor="#14705d" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#14705d" stopOpacity={0.02} />
               </linearGradient>
             </defs>
             <CartesianGrid vertical={false} stroke="#e2e8f0" />
@@ -50,7 +50,7 @@ export function MonthlyCashflowChart({
               contentStyle={{ fontSize: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}
             />
             <Area type="monotone" dataKey="collected" name="collected" stroke="#10b981" strokeWidth={2} fill="url(#gradCollected)" />
-            <Area type="monotone" dataKey="disbursed" name="disbursed" stroke="#6366f1" strokeWidth={2} fill="url(#gradDisbursed)" />
+            <Area type="monotone" dataKey="disbursed" name="disbursed" stroke="#14705d" strokeWidth={2} fill="url(#gradDisbursed)" />
           </AreaChart>
         </ResponsiveContainer>
       </div>

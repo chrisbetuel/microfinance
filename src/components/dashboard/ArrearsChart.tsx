@@ -14,8 +14,8 @@ const bandLabels: Record<string, string> = {
 }
 
 const bandColors: Record<string, string> = {
-  current: '#94A3B8',
-  '1-7': '#FBBF24',
+  current: '#14705d',
+  '1-7': '#f5b82e',
   '8-30': '#F59E0B',
   '31-60': '#FB923C',
   '61-90': '#F87171',
@@ -35,8 +35,8 @@ export function ArrearsChart({ loans, currency, subtitle }: { loans: Loan[]; cur
             <CartesianGrid vertical={false} stroke="#e2e8f0" />
             <XAxis dataKey="band" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={70} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-            <Tooltip formatter={(v) => formatMoney(Number(v), currency)} contentStyle={{ fontSize: 12, borderRadius: 10, border: '1px solid #e2e8f0' }} cursor={{ fill: '#EE0033', fillOpacity: 0.06 }} />
-            <Bar dataKey="amount" radius={[6, 6, 2, 2]}>
+            <Tooltip formatter={(v) => formatMoney(Number(v), currency)} contentStyle={{ fontSize: 12, borderRadius: 10, border: '1px solid #e2e8f0' }} cursor={{ fill: '#14705d', fillOpacity: 0.06 }} />
+            <Bar dataKey="amount" radius={[8, 8, 3, 3]} maxBarSize={44}>
               {chartData.map((entry) => (
                 <Cell key={entry.key} fill={bandColors[entry.key]} />
               ))}

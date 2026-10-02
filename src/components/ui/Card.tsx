@@ -15,7 +15,7 @@ export function Card({
   return (
     <div
       className={clsx(
-        'rounded-2xl border border-slate-200/80 bg-white shadow-[var(--shadow-card)] transition-shadow',
+        'rounded-2xl bg-white shadow-[0_1px_2px_rgba(16,24,20,0.04)] transition-shadow',
         interactive && 'hover:shadow-[var(--shadow-card-hover)]',
         padded && 'p-5',
         className,
