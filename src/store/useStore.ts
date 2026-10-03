@@ -230,6 +230,7 @@ interface StoreState {
   ) => Promise<void>
   assignCollectionCases: (caseIds: string[], staffId: string) => Promise<void>
   loadCollectionTimeline: (loanId: string) => Promise<CollectionTimelineEvent[]>
+  loadAuditPeriod: (from: string, to: string) => Promise<AuditLogEntry[]>
   loadEligibility: (input: { productId: string; borrowerId: string; amount: number; term: number; groupId?: string | null; income?: number }) => Promise<EligibilityCheck[]>
   sendLoanReminder: (loanId: string) => Promise<void>
 
@@ -832,6 +833,13 @@ export const useStore = create<StoreState>()((set, get) => {
     },
 
     loadCollectionTimeline: (loanId) => api.get<CollectionTimelineEvent[]>(`/loans/${loanId}/collection-timeline`),
+
+    loadAuditPeriod: (from, to) => {
+      const q = new URLSearchParams({ limit: '10000' })
+      if (from) q.set('from', from)
+      if (to) q.set('to', to)
+      return api.get<AuditLogEntry[]>(`/audit?${q}`)
+    },
 
     loadEligibility: ({ productId, borrowerId, amount, term, groupId, income }) => {
       const q = new URLSearchParams({ borrowerId, amount: String(amount), term: String(term) })

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.db import transaction
 from django.http import HttpResponse
@@ -1429,9 +1429,17 @@ class AuditView(APIView):
     permission_classes = [IsAuthenticated, has_section("audit")]
 
     def get(self, request):
-        limit = min(int(request.query_params.get("limit", 500)), 1000)
-        rows = request.user.lender.audit_entries.all()[:limit]
-        return Response(ser.AuditLogEntrySerializer(rows, many=True).data)
+        """Newest first. `from`/`to` (YYYY-MM-DD, inclusive) select a period for the audit report."""
+        rows = request.user.lender.audit_entries.all()
+        try:
+            if request.query_params.get("from"):
+                rows = rows.filter(timestamp__date__gte=date.fromisoformat(request.query_params["from"]))
+            if request.query_params.get("to"):
+                rows = rows.filter(timestamp__date__lte=date.fromisoformat(request.query_params["to"]))
+            limit = min(int(request.query_params.get("limit", 500)), 10_000)
+        except ValueError:
+            raise UnprocessableEntity("from/to must be YYYY-MM-DD and limit a number")
+        return Response(ser.AuditLogEntrySerializer(rows[:limit], many=True).data)
 
 
 # ------------------------------------------------------------------ collections
