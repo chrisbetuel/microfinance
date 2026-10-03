@@ -28,6 +28,7 @@ def haflaway(settings):
     settings.LMS_SMS_API_KEY = "smtz_test"
     settings.LMS_SMS_SENDER_ID = "SELE"
     settings.LMS_SMS_WEBHOOK_SECRET = "whsec_test"
+    settings.LMS_SMS_ALLOWED_NUMBERS = ""
     return settings
 
 
@@ -87,3 +88,12 @@ def test_delivery_report_updates_the_message(haflaway, admin, client, monkeypatc
     assert ok.status_code == 200 and ok.json()["updated"] == 1
     note.refresh_from_db()
     assert note.status == "delivered"
+
+
+def test_test_mode_only_texts_allowed_numbers(haflaway, monkeypatch):
+    calls = []
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: calls.append(req) or FakeResponse(b'{"id":"c1"}'))
+    haflaway.LMS_SMS_ALLOWED_NUMBERS = "0618750312"
+    blocked = sms.get_provider().send("0712345678", "x")
+    assert not blocked.ok and "test mode" in blocked.error and calls == []
+    assert sms.get_provider().send("+255 618 750 312", "x").ok and len(calls) == 1

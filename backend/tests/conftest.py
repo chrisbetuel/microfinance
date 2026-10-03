@@ -13,6 +13,12 @@ def _utc_business_day(settings):
     settings.TIME_ZONE = "UTC"
 
 
+@pytest.fixture(autouse=True)
+def _no_real_sms(settings):
+    """Tests must never reach a live SMS gateway, even when the server has one configured."""
+    settings.LMS_SMS_PROVIDER = "console"
+
+
 @pytest.fixture
 def client():
     return APIClient()

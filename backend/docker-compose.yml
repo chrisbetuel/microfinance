@@ -34,6 +34,7 @@ services:
       LMS_SMS_API_KEY: "${LMS_SMS_API_KEY:-}"
       LMS_SMS_SENDER_ID: "${LMS_SMS_SENDER_ID:-}"
       LMS_SMS_WEBHOOK_SECRET: "${LMS_SMS_WEBHOOK_SECRET:-}"
+      LMS_SMS_ALLOWED_NUMBERS: "${LMS_SMS_ALLOWED_NUMBERS:-}"
       LMS_TIME_ZONE: "${LMS_TIME_ZONE:-Africa/Dar_es_Salaam}"
     ports:
       # Override the host port if 8000 is taken: API_PORT=8001 docker compose up

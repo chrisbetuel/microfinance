@@ -167,6 +167,13 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **opts):
+        # Demo borrowers have made-up phone numbers: never send them real SMS, whatever gateway is configured.
+        from django.test.utils import override_settings
+
+        with override_settings(LMS_SMS_PROVIDER="console"):
+            return self._handle(*args, **opts)
+
+    def _handle(self, *args, **opts):
         rng = random.Random(42)
         existing = Lender.objects.filter(name=DEMO_LENDER).first()
         if existing is not None:

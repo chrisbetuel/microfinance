@@ -102,6 +102,9 @@ class HaflawaySms(SmsProvider):
             return SmsResult(ok=False, error="Haflaway SMS not configured (LMS_SMS_API_KEY missing)")
         if not sender:
             return SmsResult(ok=False, error="Haflaway SMS needs an approved sender ID (LMS_SMS_SENDER_ID)")
+        allowed = {msisdn(n) for n in settings.LMS_SMS_ALLOWED_NUMBERS.split(",") if n.strip()}
+        if allowed and msisdn(to) not in allowed:
+            return SmsResult(ok=False, error="Not sent: test mode — number not in LMS_SMS_ALLOWED_NUMBERS")
         payload = json.dumps({
             "name": "LMS notification", "senderId": sender[:11], "content": body[:1600], "recipients": [msisdn(to)],
         }).encode()

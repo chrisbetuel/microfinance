@@ -7,6 +7,21 @@ import dj_database_url
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_dotenv(path: Path) -> None:
+    """KEY=VALUE lines from backend/.env (git-ignored). Real environment variables win."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv(BASE_DIR / ".env")
+
+
 def env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
@@ -116,7 +131,9 @@ LMS_SMS_SENDER_ID = env("LMS_SMS_SENDER_ID", "")
 LMS_SMS_API_KEY = env("LMS_SMS_API_KEY", "")
 # Haflaway / SMTZ gateway (LMS_SMS_PROVIDER=haflaway)
 LMS_SMS_BASE_URL = env("LMS_SMS_BASE_URL", "https://messaging-api.haflaway.com/api/v1")
-LMS_SMS_WEBHOOK_SECRET = env("LMS_SMS_WEBHOOK_SECRET", "")  # whsec_… from registering the delivery webhook
+LMS_SMS_WEBHOOK_SECRET = env("LMS_SMS_WEBHOOK_SECRET", "")
+# Test mode: when set (comma-separated), the live gateway only texts these numbers.
+LMS_SMS_ALLOWED_NUMBERS = env("LMS_SMS_ALLOWED_NUMBERS", "")  # whsec_… from registering the delivery webhook
 LMS_PAYMENT_PROVIDER = env("LMS_PAYMENT_PROVIDER", "mock")
 LMS_PAYMENT_API_KEY = env("LMS_PAYMENT_API_KEY", "")
 LMS_PAYMENT_WEBHOOK_SECRET = env("LMS_PAYMENT_WEBHOOK_SECRET", "dev-webhook-secret")
