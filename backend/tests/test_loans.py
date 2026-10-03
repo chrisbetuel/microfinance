@@ -70,7 +70,7 @@ def test_repayment_allocates_in_bucket_order(approved_application):
     cashier = approved_application["cashier"]
     loan = release_loan(cashier, app['id'], "mobile_money", "MM-1")
 
-    resp = cashier.post("/repayments", {"loanId": loan["id"], "amount": 248000, "channel": "mobile_money"})
+    resp = cashier.post("/repayments", {"loanId": loan["id"], "amount": 248000, "channel": "mobile_money", "reference": "MP-T1"})
     assert resp.status_code == 201, resp.content
     rp = resp.json()
     assert rp["allocation"]["penalty"] == 0
@@ -92,7 +92,7 @@ def test_full_repayment_closes_loan_and_reversal_reopens(approved_application):
     loan = release_loan(cashier, app['id'], "mobile_money", "MM-1")
     total_due = sum(i["totalDue"] for i in loan["schedule"])
 
-    pay = cashier.post("/repayments", {"loanId": loan["id"], "amount": total_due, "channel": "bank"})
+    pay = cashier.post("/repayments", {"loanId": loan["id"], "amount": total_due, "channel": "bank", "reference": "BNK-T1"})
     assert pay.status_code == 201
     loans = cashier.get("/loans").json()
     assert next(x for x in loans if x["id"] == loan["id"])["status"] == "closed"

@@ -39,6 +39,7 @@ export interface Lender {
   smsSenderApproved: boolean
   sessionTimeoutMinutes: number
   dualAuthorisationThreshold: number
+  collectionStages: string[]
 }
 
 export interface Branch {
@@ -184,6 +185,7 @@ export interface ProductFee {
   kind: 'fixed' | 'percent'
   value: number
   timing: FeeTiming
+  feeType?: 'application' | 'processing' | 'disbursement' | 'insurance' | 'service' | 'other'
 }
 
 export interface ApprovalLevel {
@@ -191,6 +193,8 @@ export interface ApprovalLevel {
   minAmount: number
   maxAmount: number | null
   requiredRole: StaffRole
+  /** Every role that must approve, in order; the last is the most senior. */
+  requiredRoles?: StaffRole[]
 }
 
 export type SecurityType = 'guarantors' | 'collateral' | 'group_guarantee' | 'savings' | 'none'
@@ -219,6 +223,41 @@ export interface LoanProduct {
   allocationOrder: Array<'penalty' | 'fee' | 'interest' | 'principal'>
   securityRequired: SecurityType[]
   approvalLevels: ApprovalLevel[]
+  description: string
+  category: ProductCategory
+  status: 'active' | 'inactive' | 'archived'
+  defaultAmount: number | null
+  defaultTerm: number | null
+  penaltyEnabled: boolean
+  penaltyGraceDays: number
+  minAge: number | null
+  minMembershipDays: number | null
+  minSavings: number | null
+  minMonthlyIncome: number | null
+  requiredDocuments: string[]
+  minGuarantors: number
+  minCollateralPercent: number
+  loanType: 'individual' | 'group'
+  minGroupMembers: number
+  disbursementMethods: DisbursementChannel[]
+  maxDisbursementAmount: number | null
+  firstRepaymentRule: 'one_period' | 'day_of_month'
+  firstRepaymentDay: number | null
+  earlyRepaymentAllowed: boolean
+  maxActiveLoans: number | null
+  maxTotalOutstanding: number | null
+  maxIncreasePercent: number | null
+  maxGroupExposure: number | null
+  maxOpenApplications: number | null
+}
+
+export type ProductCategory = 'business' | 'emergency' | 'agriculture' | 'education' | 'salary' | 'group' | 'other'
+
+export interface EligibilityCheck {
+  rule: string
+  ok: boolean
+  detail: string
+  stage: 'intake' | 'security'
 }
 
 export type ApplicationStatus =
@@ -266,6 +305,8 @@ export interface Application {
   declineReason: string | null
   risk: ApplicationRisk
   needsReview: boolean
+  requiredApprovals: StaffRole[]
+  eligibility: EligibilityCheck[]
   requestedAmount: number
   requestedTerm: number
   loanOfficerId: string | null
@@ -642,12 +683,14 @@ export interface RestructurePreview {
   newPrincipal: number
 }
 
+export type RepaymentChannel = 'mobile_money' | 'bank' | 'cash' | 'field' | 'other'
+
 export interface Repayment {
   id: string
   loanId: string
   amount: number
   date: string
-  channel: 'mobile_money' | 'bank' | 'cash' | 'field'
+  channel: RepaymentChannel
   receiptNumber: string
   allocation: {
     penalty: number
@@ -659,6 +702,90 @@ export interface Repayment {
   recordedBy: string
   reversed: boolean
   reversalReason: string | null
+  reversedBy: string
+  reversedAt: string | null
+  paymentDate: string
+  reference: string
+  receivedById: string | null
+  receivedByName: string
+  branchId: string | null
+  collectionPoint: string
+  notes: string
+  balanceAfter: number | null
+  correctsId: string | null
+  correctedById: string | null
+  groupPaymentId: string | null
+  collectionActivityId: string | null
+  reconciliationStatus: 'unreconciled' | 'reconciled'
+  reconciledAt: string | null
+  reconciledBy: string
+  reconciliationNote: string
+}
+
+export interface RepaymentInput {
+  loanId: string
+  amount: number
+  channel: RepaymentChannel
+  paymentDate: string
+  reference: string
+  receivedById: string | null
+  branchId: string | null
+  collectionPoint: string
+  notes: string
+  collectionActivityId?: string | null
+}
+
+export interface GroupPayment {
+  id: string
+  groupId: string
+  number: string
+  amount: number
+  paymentDate: string
+  channel: RepaymentChannel
+  reference: string
+  receivedById: string | null
+  collectionPoint: string
+  notes: string
+  recordedBy: string
+  createdAt: string
+  repaymentIds: string[]
+  reconciled: boolean
+}
+
+export type StatementSource = 'bank' | 'mobile_money' | 'cash'
+
+export interface StatementLine {
+  id: string
+  source: StatementSource
+  date: string
+  reference: string
+  amount: number
+  description: string
+  batch: string
+  status: 'unmatched' | 'matched' | 'ignored'
+  repaymentId: string | null
+  groupPaymentId: string | null
+  note: string
+  importedBy: string
+  importedAt: string
+}
+
+export interface ReconciliationData {
+  summary: {
+    source: StatementSource
+    recordedCount: number
+    recordedAmount: number
+    reconciledCount: number
+    reconciledAmount: number
+    unreconciledCount: number
+    unreconciledAmount: number
+    missingFromStatementCount: number
+    missingFromStatementAmount: number
+    statementUnmatchedCount: number
+    statementUnmatchedAmount: number
+    latestStatementDate: string | null
+  }
+  lines: StatementLine[]
 }
 
 export interface AuditLogEntry {
@@ -733,4 +860,106 @@ export interface CollectionActivity {
   promiseStatus: 'kept' | 'broken' | 'pending' | null
   createdBy: string
   createdAt: string
+  caseId: string | null
+  reason: string
+  nextFollowUp: string | null
+  nextAction: string
+  location: string
+  purpose: string
+  amountCollected: number | null
+  visitDate: string | null
+  visitStatus: '' | 'scheduled' | 'completed'
+  attachments: string[]
+}
+
+export interface CollectionActivityInput {
+  kind: CollectionActivityKind
+  outcome?: CollectionOutcome
+  note: string
+  promisedAmount?: number | null
+  promisedDate?: string | null
+  reason?: string
+  nextFollowUp?: string | null
+  nextAction?: string
+  location?: string
+  purpose?: string
+  amountCollected?: number | null
+  visitDate?: string | null
+  visitStatus?: '' | 'scheduled' | 'completed'
+  attachments?: string[]
+  payment?: { amount: number; channel: RepaymentChannel; reference: string } | null
+}
+
+export type CollectionCaseStatus =
+  | 'pending_follow_up'
+  | 'contacted'
+  | 'promise_to_pay'
+  | 'promise_kept'
+  | 'promise_broken'
+  | 'field_visit_required'
+  | 'under_review'
+  | 'escalated'
+  | 'resolved'
+  | 'paid'
+
+export interface CollectionCase {
+  id: string
+  number: string
+  loanId: string
+  loanNumber: string
+  borrowerId: string
+  borrowerName: string
+  groupId: string | null
+  groupName: string | null
+  branchId: string
+  status: CollectionCaseStatus
+  stage: string
+  assignedToId: string | null
+  assignedToName: string
+  assignedBy: string
+  assignedAt: string | null
+  nextAction: string
+  nextFollowUp: string | null
+  openedAt: string
+  closedAt: string | null
+  resolutionNote: string
+  lastContactAt: string | null
+  outstanding: number
+  overdueAmount: number
+  daysOverdue: number
+  missedInstalments: number
+  nextDueDate: string | null
+  lastPaymentDate: string | null
+  lastPaymentAmount: number | null
+  openPromise: { amount: number; date: string } | null
+  brokenPromises: number
+}
+
+export interface CollectionDashboard {
+  dueToday: number
+  overdueLoans: number
+  overdueAmount: number
+  overdueOutstanding: number
+  promisesDueToday: number
+  fieldVisitsToday: number
+  recoveredThisMonth: number
+  collectionRate: number | null
+  dueThisMonth: number
+  collectedThisMonth: number
+  promises: { made: number; fulfilled: number; missed: number; pending: number }
+  aging: { bucket: string; loans: number; amount: number; outstanding: number }[]
+  officerActivity: { officer: string; calls: number; visits: number; messages: number; promises: number; escalations: number; total: number; openCases?: number }[]
+  openCases: number
+  escalatedCases: number
+  significantOverdue: number
+  stages: string[]
+}
+
+export interface CollectionTimelineEvent {
+  at: string
+  kind: string
+  label: string
+  note?: string
+  by: string
+  outcome?: string
 }

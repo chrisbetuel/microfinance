@@ -19,6 +19,7 @@ import type { BorrowerGroup, GroupMemberRole, GroupMemberStatus, GroupStatus } f
 import { GROUP_TYPE_LABELS, groupSummary } from './groupStats'
 import type { GroupLoanStatus } from './groupStats'
 import { GROUP_STATUS_TONE } from './Groups'
+import { GroupPaymentsTab } from './GroupPayments'
 
 const ROLE_LABEL: Record<GroupMemberRole, string> = { chair: 'Chairperson', secretary: 'Secretary', treasurer: 'Treasurer', member: 'Member' }
 const ROLE_TONE: Record<GroupMemberRole, BadgeTone> = { chair: 'blue', secretary: 'green', treasurer: 'amber', member: 'slate' }
@@ -31,6 +32,7 @@ const FREQ: Record<string, string> = { weekly: 'Weekly', biweekly: 'Every two we
 const TABS = [
   { id: 'members', label: 'Members' },
   { id: 'loans', label: 'Group loans' },
+  { id: 'payments', label: 'Group payments' },
   { id: 'meetings', label: 'Meetings' },
   { id: 'documents', label: 'Documents' },
   { id: 'history', label: 'History' },
@@ -171,6 +173,7 @@ export default function GroupDetail() {
               ]}
             />
           )}
+          {tab === 'payments' && <GroupPaymentsTab group={group} canEdit={canEdit} />}
           {tab === 'meetings' && <MeetingsTab group={group} canEdit={canEdit} />}
           {tab === 'documents' && <DocumentsTab group={group} canEdit={canEdit} />}
           {tab === 'history' && (

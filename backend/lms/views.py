@@ -26,6 +26,7 @@ from lms.models import (
     Branch,
     Collateral,
     CollectionActivity,
+    CollectionCase,
     Disbursement,
     LedgerEntry,
     GroupAttendance,
@@ -44,6 +45,7 @@ from lms.models import (
     SavingsAccount,
     SavingsTransaction,
     Staff,
+    StatementLine,
     TillReconciliation,
 )
 from lms.permissions import (
@@ -51,6 +53,7 @@ from lms.permissions import (
     IsProductManager,
     IsSupervisor,
     can_approve_application,
+    is_supervisor,
     has_section,
     has_section_access,
     section_editor,
@@ -61,7 +64,9 @@ from lms.services import (
     audit,
     collections as collections_service,
     disbursements as disbursement_service,
+    collection_cases as case_service,
     ledger as ledger_service,
+    repayments as repayment_service,
     gateway as gateway_service,
     loans as loan_service,
     notify,
@@ -1120,10 +1125,10 @@ class LoanSettleView(APIView):
         channel = request.data.get("channel", "cash")
         if channel not in {c for c, _ in RepaymentChannel.choices}:
             channel = "cash"
-        product = product_qs(lender).filter(pk=loan.product_id).first()
         with transaction.atomic():
-            repayment = loan_service.post_repayment(
-                loan=loan, product=product, amount=amount, channel=channel, recorded_by=request.user.name,
+            repayment = _repayment_call(
+                repayment_service.record, request.user, loan, amount=amount, channel=channel,
+                reference=request.data.get("reference", ""), notes="Early settlement",
             )
             loan.refresh_from_db()
             if loan.status != LoanStatus.ACTIVE:
@@ -1133,9 +1138,6 @@ class LoanSettleView(APIView):
                 request.user, "settled", "loan", loan.id,
                 f"Early settlement of {amount:,.0f}, receipt {repayment.receipt_number}",
             )
-        notify.receipt(lender, loan.borrower, repayment)
-        if loan.status == LoanStatus.CLOSED:
-            notify.completed(lender, loan.borrower, loan)
         return Response(ser.LoanSerializer(Loan.objects.prefetch_related("schedule").get(pk=loan.pk)).data)
 
 
@@ -1208,43 +1210,46 @@ class LoanWriteOffView(APIView):
 
 # -------------------------------------------------------------------- repayments
 
+def repayment_qs(lender):
+    return Repayment.objects.filter(lender=lender).select_related("received_by").prefetch_related("corrections")
+
+
+def _repayment_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except repayment_service.RepaymentError as exc:
+        if exc.status == 409:
+            raise Conflict(str(exc))
+        raise UnprocessableEntity(str(exc))
+
+
 class RepaymentsView(APIView):
     permission_classes = [IsAuthenticated, section_editor("repayments")]
 
     def get(self, request):
-        rows = Repayment.objects.filter(lender=request.user.lender)
-        return Response(ser.RepaymentSerializer(rows, many=True).data)
+        return Response(ser.RepaymentSerializer(repayment_qs(request.user.lender), many=True).data)
 
     def post(self, request):
         data = validated(ser.RepaymentCreateSerializer, request.data)
-        if data["amount"] <= 0:
-            raise UnprocessableEntity("Amount must be positive")
         lender = request.user.lender
         loan = Loan.objects.filter(pk=data["loan_id"], lender=lender).prefetch_related("schedule").first()
         if loan is None:
             raise NotFound("Loan not found")
-        if loan.status != LoanStatus.ACTIVE:
-            raise Conflict("This loan is not active")
-        if data["amount"] > float(loan.outstanding_balance) + 0.01:
-            raise UnprocessableEntity(
-                f"Payment exceeds the outstanding balance of {float(loan.outstanding_balance):,.0f}"
-            )
-        product = product_qs(lender).filter(pk=loan.product_id).first()
-
-        with transaction.atomic():
-            repayment = loan_service.post_repayment(
-                loan=loan, product=product, amount=data["amount"],
-                channel=data["channel"], recorded_by=request.user.name,
-            )
-            audit.record(
-                request.user, "recorded", "repayment", repayment.id,
-                f"{data['amount']:,.0f} received via {data['channel']}, receipt {repayment.receipt_number}",
-            )
-        notify.receipt(lender, loan.borrower, repayment)
-        loan.refresh_from_db()
-        if loan.status == LoanStatus.CLOSED:
-            notify.completed(lender, loan.borrower, loan)
-        return Response(ser.RepaymentSerializer(repayment).data, status=status.HTTP_201_CREATED)
+        received_by = ensure_staff_member(lender, data.get("received_by_id")) if data.get("received_by_id") else None
+        if data.get("branch_id"):
+            ensure_branch(lender, data["branch_id"])
+        activity = None
+        if data.get("collection_activity_id"):
+            activity = CollectionActivity.objects.filter(pk=data["collection_activity_id"], loan=loan).first()
+            if activity is None:
+                raise NotFound("Collection activity not found for this loan")
+        repayment = _repayment_call(
+            repayment_service.record, request.user, loan, amount=data["amount"], channel=data["channel"],
+            payment_date=data.get("payment_date"), reference=data["reference"], received_by=received_by,
+            branch_id=data.get("branch_id"), collection_point=data["collection_point"], notes=data["notes"],
+            collection_activity=activity,
+        )
+        return Response(ser.RepaymentSerializer(repayment_qs(lender).get(pk=repayment.pk)).data, status=status.HTTP_201_CREATED)
 
 
 class RepaymentReverseView(APIView):
@@ -1252,28 +1257,103 @@ class RepaymentReverseView(APIView):
 
     def post(self, request, repayment_id):
         lender = request.user.lender
-        repayment = Repayment.objects.filter(pk=repayment_id, lender=lender).first()
+        repayment = Repayment.objects.filter(pk=repayment_id, lender=lender).select_related("received_by").first()
         if repayment is None:
             raise NotFound("Repayment not found")
-        if repayment.reversed:
-            raise Conflict("This payment has already been reversed")
         data = validated(ser.RepaymentReverseSerializer, request.data)
-
-        loan = Loan.objects.filter(pk=repayment.loan_id, lender=lender).prefetch_related("schedule").first()
-        product = product_qs(lender).filter(pk=loan.product_id).first()
-        loan_repayments = list(Repayment.objects.filter(loan=loan))
-
-        with transaction.atomic():
-            loan_service.reverse_repayment(
-                repayment=repayment, loan=loan, product=product,
-                loan_repayments=loan_repayments, reason=data["reason"], by_name=request.user.name,
-            )
-            audit.record(request.user, "reversed", "repayment", repayment.id, f"Reversal reason: {data['reason']}")
-        repayment.refresh_from_db()
-        return Response(ser.RepaymentSerializer(repayment).data)
+        original, corrected = _repayment_call(
+            repayment_service.reverse, request.user, repayment, reason=data["reason"], corrected=data.get("corrected"),
+        )
+        body = ser.RepaymentSerializer(repayment_qs(lender).get(pk=original.pk)).data
+        if corrected is not None:
+            body = {**body, "corrected": ser.RepaymentSerializer(repayment_qs(lender).get(pk=corrected.pk)).data}
+        return Response(body)
 
 
-# ------------------------------------------------------------------------ audit
+class GroupPaymentsView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def _group(self, request, group_id):
+        group = BorrowerGroup.objects.filter(pk=group_id, lender=request.user.lender).first()
+        if group is None:
+            raise NotFound("Group not found")
+        return group
+
+    def get(self, request, group_id):
+        group = self._group(request, group_id)
+        rows = group.payments.prefetch_related("repayments")
+        return Response(ser.GroupPaymentSerializer(rows, many=True).data)
+
+    def post(self, request, group_id):
+        group = self._group(request, group_id)
+        data = validated(ser.GroupPaymentCreateSerializer, request.data)
+        gp = _repayment_call(
+            repayment_service.record_group_payment, request.user, group, channel=data["channel"],
+            payment_date=data.get("payment_date"), reference=data["reference"],
+            collection_point=data["collection_point"], notes=data["notes"],
+            contributions=[{"loan_id": c["loan_id"], "amount": c["amount"]} for c in data["contributions"]],
+        )
+        return Response(ser.GroupPaymentSerializer(gp).data, status=status.HTTP_201_CREATED)
+
+
+class ReconciliationView(APIView):
+    """Statement lines and the reconciliation position for one money source."""
+
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def get(self, request):
+        source = request.query_params.get("source", "bank")
+        lender = request.user.lender
+        lines = StatementLine.objects.filter(lender=lender, source=source)[:500]
+        return Response({
+            "summary": repayment_service.summary(lender, source),
+            "lines": ser.StatementLineSerializer(lines, many=True).data,
+        })
+
+
+class StatementImportView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def post(self, request):
+        data = validated(ser.StatementImportSerializer, request.data)
+        result = _repayment_call(repayment_service.import_statement, request.user, request.user.lender,
+                                 source=data["source"], lines=data["lines"])
+        return Response(result, status=status.HTTP_201_CREATED)
+
+
+class StatementRematchView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def post(self, request):
+        source = request.data.get("source", "bank")
+        return Response({"matched": repayment_service.rematch(request.user, request.user.lender, source)})
+
+
+class StatementLineActionView(APIView):
+    """POST /reconciliation/lines/<id>/<match|ignore|unmatch>."""
+
+    permission_classes = [IsAuthenticated, section_editor("repayments")]
+
+    def post(self, request, line_id, action):
+        lender = request.user.lender
+        line = StatementLine.objects.filter(pk=line_id, lender=lender).first()
+        if line is None:
+            raise NotFound("Statement line not found")
+        data = validated(ser.StatementActionSerializer, request.data)
+        if action == "match":
+            repayment = Repayment.objects.filter(pk=data.get("repayment_id"), lender=lender).first()
+            if repayment is None:
+                raise NotFound("Repayment not found")
+            _repayment_call(repayment_service.match, request.user, line, repayment)
+        elif action == "ignore":
+            _repayment_call(repayment_service.ignore, request.user, line, data["note"])
+        elif action == "unmatch":
+            _repayment_call(repayment_service.unmatch, request.user, line)
+        else:
+            raise NotFound("Unknown action")
+        line.refresh_from_db()
+        return Response(ser.StatementLineSerializer(line).data)
+
 
 class AuditView(APIView):
     permission_classes = [IsAuthenticated, has_section("audit")]
@@ -1316,25 +1396,110 @@ class LoanCollectionActivityView(APIView):
         if loan is None:
             raise NotFound("Loan not found")
         data = validated(ser.CollectionActivityCreateSerializer, request.data)
+        case_service.sync(lender)
+        case = CollectionCase.objects.filter(loan=loan).exclude(status__in=case_service.CLOSED).first()
+        payment = data.pop("payment", None)
         with transaction.atomic():
             activity = CollectionActivity.objects.create(
-                lender=lender,
-                loan=loan,
-                borrower=loan.borrower,
-                kind=data["kind"],
-                outcome=data.get("outcome") or "",
-                note=data.get("note") or "",
-                promised_amount=data.get("promised_amount"),
-                promised_date=data.get("promised_date"),
-                created_by=request.user.name,
+                lender=lender, loan=loan, borrower=loan.borrower, case=case,
+                kind=data["kind"], outcome=data.get("outcome") or "", note=data.get("note") or "",
+                promised_amount=data.get("promised_amount"), promised_date=data.get("promised_date"),
+                reason=data["reason"], next_follow_up=data.get("next_follow_up"), next_action=data["next_action"],
+                location=data["location"], purpose=data["purpose"],
+                amount_collected=(payment or {}).get("amount") or data.get("amount_collected"),
+                visit_date=data.get("visit_date") or (timezone.localdate() if data["kind"] == "visit" else None),
+                visit_status=data["visit_status"] if data["kind"] == "visit" else "",
+                attachments=data["attachments"], created_by=request.user.name,
             )
-            label = "Promise to pay" if data["kind"] == "promise" else data["kind"].title()
-            audit.record(
-                request.user, "logged", "collection_activity", activity.id,
-                f"{label} on {loan.borrower.full_name}'s loan",
-            )
+            if payment:
+                loan = Loan.objects.prefetch_related("schedule").get(pk=loan.pk)
+                _repayment_call(
+                    repayment_service.record, request.user, loan, amount=float(payment["amount"]),
+                    channel=payment.get("channel") or "field", reference=payment.get("reference", ""),
+                    collection_point=data["location"] or ("Field visit" if data["kind"] == "visit" else "Collections"),
+                    notes=f"Collected during {data['kind']}", collection_activity=activity,
+                )
+                if activity.outcome == "":
+                    activity.outcome = "paid"
+                    activity.save(update_fields=["outcome"])
+            case_service.apply_activity(case, activity, request.user)
+            label = {"promise": "Promise to pay", "visit": "Field visit", "escalation": "Escalation"}.get(data["kind"], data["kind"].title())
+            audit.record(request.user, "logged", "collection_activity", activity.id, f"{label} on {loan.borrower.full_name}'s loan")
+        if payment:
+            case_service.sync(lender)
         _attach_promise_status([activity], lender)
         return Response(ser.CollectionActivitySerializer(activity).data, status=status.HTTP_201_CREATED)
+
+
+def collection_case_qs(lender):
+    return CollectionCase.objects.filter(lender=lender).select_related(
+        "loan", "loan__borrower", "loan__group", "assigned_to",
+    ).prefetch_related("loan__schedule")
+
+
+class CollectionCasesView(APIView):
+    permission_classes = [IsAuthenticated, has_section("collections")]
+
+    def get(self, request):
+        case_service.sync(request.user.lender)
+        return Response(ser.CollectionCaseSerializer(collection_case_qs(request.user.lender), many=True).data)
+
+
+class CollectionCaseDetailView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("collections")]
+
+    def get(self, request, case_id):
+        c = collection_case_qs(request.user.lender).filter(pk=case_id).first()
+        if c is None:
+            raise NotFound("Case not found")
+        return Response(ser.CollectionCaseSerializer(c).data)
+
+    def patch(self, request, case_id):
+        lender = request.user.lender
+        c = collection_case_qs(lender).filter(pk=case_id).first()
+        if c is None:
+            raise NotFound("Case not found")
+        data = validated(ser.CollectionCaseUpdateSerializer, request.data)
+        if ("assigned_to_id" in data or "status" in data or "stage" in data) and not is_supervisor(request.user.role):
+            raise PermissionDenied("Only a manager can assign cases or change their status")
+        if "stage" in data and data["stage"] not in case_service.stages_for(lender):
+            raise UnprocessableEntity("Unknown collection stage")
+        if "assigned_to_id" in data:
+            data["assigned_to"] = ensure_staff_member(lender, data.pop("assigned_to_id"))
+        with transaction.atomic():
+            case_service.update(c, request.user, data)
+            audit.record(request.user, "updated", "collection_case", c.id, f"{c.number} updated")
+        return Response(ser.CollectionCaseSerializer(collection_case_qs(lender).get(pk=c.pk)).data)
+
+
+class CollectionCasesAssignView(APIView):
+    permission_classes = [IsAuthenticated, section_editor("collections"), IsSupervisor]
+
+    def post(self, request):
+        lender = request.user.lender
+        data = validated(ser.CollectionCaseAssignSerializer, request.data)
+        officer = ensure_staff_member(lender, data["staff_id"])
+        cases = list(CollectionCase.objects.filter(lender=lender, pk__in=data["case_ids"]))
+        with transaction.atomic():
+            for c in cases:
+                case_service.update(c, request.user, {"assigned_to": officer})
+            audit.record(request.user, "assigned", "collection_case", None, f"{len(cases)} case(s) assigned to {officer.name}")
+        return Response({"assigned": len(cases)})
+
+
+class CollectionDashboardView(APIView):
+    permission_classes = [IsAuthenticated, has_section("collections")]
+
+    def get(self, request):
+        return Response(case_service.dashboard(request.user.lender, request.user))
+
+
+class LoanCollectionTimelineView(APIView):
+    def get(self, request, loan_id):
+        loan = Loan.objects.filter(pk=loan_id, lender=request.user.lender).prefetch_related("schedule").first()
+        if loan is None:
+            raise NotFound("Loan not found")
+        return Response(case_service.timeline(loan))
 
 
 class LoanReminderView(APIView):
@@ -1679,6 +1844,7 @@ class TillView(APIView):
                 request.user, "closed", "till", rec.id,
                 f"Drawer closed for {business_date}: counted {counted:,.0f}, variance {variance:+,.0f}",
             )
+            repayment_service.reconcile_till(request.user.lender, request.user.name, business_date, rec.id)
         return Response(ser.TillReconciliationSerializer(rec).data, status=status.HTTP_201_CREATED)
 
 

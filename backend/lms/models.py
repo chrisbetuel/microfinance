@@ -35,6 +35,8 @@ class Lender(models.Model):
     session_timeout_minutes = models.IntegerField(default=20)
     # disbursements of this amount or more need two different authorisers (0 = never)
     dual_authorisation_threshold = models.DecimalField(max_digits=14, decimal_places=2, default=5_000_000)
+    # the lender's collection stages, in order (empty = services.collection_cases.DEFAULT_STAGES)
+    collection_stages = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
 
@@ -476,6 +478,29 @@ class Repayment(models.Model):
     recorded_by = models.CharField(max_length=150)
     reversed = models.BooleanField(default=False)
     reversal_reason = models.TextField(null=True, blank=True)
+    reversed_by = models.CharField(max_length=150, blank=True, default="")
+    reversed_at = models.DateTimeField(null=True, blank=True)
+
+    # what the borrower paid, and where
+    payment_date = models.DateField(default=timezone.localdate)
+    reference = models.CharField(max_length=100, blank=True, default="", db_index=True)  # bank / M-Pesa ref
+    received_by = models.ForeignKey("Staff", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    collection_point = models.CharField(max_length=150, blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    balance_after = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    # links
+    corrects = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="corrections")
+    group_payment = models.ForeignKey("GroupPayment", on_delete=models.SET_NULL, null=True, blank=True, related_name="repayments")
+    collection_activity = models.ForeignKey("CollectionActivity", on_delete=models.SET_NULL, null=True, blank=True,
+                                            related_name="repayments")
+
+    # reconciliation against the money actually received
+    reconciliation_status = models.CharField(max_length=12, default="unreconciled")  # unreconciled | reconciled
+    reconciled_at = models.DateTimeField(null=True, blank=True)
+    reconciled_by = models.CharField(max_length=150, blank=True, default="")
+    reconciliation_note = models.CharField(max_length=250, blank=True, default="")
 
     class Meta:
         ordering = ["-date"]
@@ -763,6 +788,17 @@ class CollectionActivity(models.Model):
     note = models.TextField(blank=True, default="")
     promised_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     promised_date = models.DateField(null=True, blank=True)
+    case = models.ForeignKey("CollectionCase", on_delete=models.SET_NULL, null=True, blank=True, related_name="activities")
+    reason = models.CharField(max_length=250, blank=True, default="")  # why the payment is late (promises)
+    next_follow_up = models.DateField(null=True, blank=True)
+    next_action = models.CharField(max_length=250, blank=True, default="")
+    # field visits
+    location = models.CharField(max_length=250, blank=True, default="")
+    purpose = models.CharField(max_length=250, blank=True, default="")
+    amount_collected = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    visit_date = models.DateField(null=True, blank=True)
+    visit_status = models.CharField(max_length=10, blank=True, default="")  # scheduled | completed
+    attachments = models.JSONField(default=list, blank=True)
     created_by = models.CharField(max_length=150)
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -907,3 +943,87 @@ class LedgerEntry(models.Model):
 
     class Meta:
         ordering = ["date", "journal"]
+
+
+class GroupPayment(models.Model):
+    """One payment by a group, split into member contributions — each a Repayment on that member's loan."""
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="group_payments")
+    group = models.ForeignKey("BorrowerGroup", on_delete=models.CASCADE, related_name="payments")
+    number = models.CharField(max_length=20, db_index=True)  # GPY-000001
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    payment_date = models.DateField(default=timezone.localdate)
+    channel = models.CharField(max_length=20, choices=enums.RepaymentChannel.choices)
+    reference = models.CharField(max_length=100, blank=True, default="")
+    received_by = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    collection_point = models.CharField(max_length=150, blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    recorded_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class StatementLine(models.Model):
+    """A line from a bank / mobile-money statement or cash count, used to prove
+    that a recorded repayment's money actually arrived."""
+
+    class Status(models.TextChoices):
+        UNMATCHED = "unmatched"
+        MATCHED = "matched"
+        IGNORED = "ignored"  # not a loan repayment (e.g. bank charges)
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="statement_lines")
+    source = models.CharField(max_length=20)  # bank | mobile_money | cash
+    date = models.DateField()
+    reference = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    description = models.CharField(max_length=250, blank=True, default="")
+    batch = models.CharField(max_length=40, db_index=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.UNMATCHED)
+    repayment = models.OneToOneField(Repayment, on_delete=models.SET_NULL, null=True, blank=True, related_name="statement_line")
+    group_payment = models.OneToOneField(GroupPayment, on_delete=models.SET_NULL, null=True, blank=True, related_name="statement_line")
+    note = models.CharField(max_length=250, blank=True, default="")
+    imported_by = models.CharField(max_length=150)
+    imported_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-date", "-imported_at"]
+
+
+class CollectionCase(models.Model):
+    """Follow-up on one loan's due/overdue payments. See services/collection_cases.py."""
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="collection_cases")
+    loan = models.ForeignKey(Loan, on_delete=models.CASCADE, related_name="collection_cases")
+    number = models.CharField(max_length=20, db_index=True)  # COL-000001
+    status = models.CharField(max_length=24, default="pending_follow_up")
+    stage = models.CharField(max_length=40, default="overdue")
+    assigned_to = models.ForeignKey(Staff, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    assigned_by = models.CharField(max_length=150, blank=True, default="")
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    next_action = models.CharField(max_length=250, blank=True, default="")
+    next_follow_up = models.DateField(null=True, blank=True)
+    last_contact_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.CharField(max_length=250, blank=True, default="")
+    opened_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-opened_at"]
+
+
+class CollectionCaseEvent(models.Model):
+    id = uuid_pk()
+    case = models.ForeignKey(CollectionCase, on_delete=models.CASCADE, related_name="events")
+    label = models.CharField(max_length=250)
+    note = models.TextField(blank=True, default="")
+    by = models.CharField(max_length=150, blank=True, default="")
+    at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["at"]

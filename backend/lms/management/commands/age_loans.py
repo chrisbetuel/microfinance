@@ -3,7 +3,7 @@ from datetime import date
 from django.core.management.base import BaseCommand
 
 from lms.models import Lender
-from lms.services import aging
+from lms.services import aging, collection_cases
 from lms.services.audit import record
 
 
@@ -22,6 +22,7 @@ class Command(BaseCommand):
 
         for lender in lenders:
             results = aging.age_all(lender=lender, as_of=as_of)
+            collection_cases.sync(lender)  # open cases for new arrears, close cleared ones
             if not results:
                 continue
             in_arrears = [r for r in results if r.days_in_arrears > 0]

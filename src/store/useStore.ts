@@ -18,8 +18,11 @@ import type {
   GuarantorInput,
   Branch,
   CollectionActivity,
-  CollectionActivityKind,
-  CollectionOutcome,
+  CollectionActivityInput,
+  CollectionCase,
+  CollectionCaseStatus,
+  CollectionDashboard,
+  CollectionTimelineEvent,
   GroupDetails,
   GroupMemberRole,
   GroupMemberStatus,
@@ -32,6 +35,11 @@ import type {
   LoanProduct,
   Notification,
   Repayment,
+  RepaymentChannel,
+  RepaymentInput,
+  GroupPayment,
+  StatementSource,
+  ReconciliationData,
   Staff,
   StaffRole,
 } from '../types'
@@ -85,6 +93,7 @@ const EMPTY_LENDER: Lender = {
   smsSenderApproved: false,
   sessionTimeoutMinutes: 20,
   dualAuthorisationThreshold: 5_000_000,
+  collectionStages: ['payment_due', 'reminder', 'overdue', 'contact_attempt', 'promise_to_pay', 'follow_up', 'field_visit', 'escalation', 'resolution'],
 }
 
 interface StoreState {
@@ -104,6 +113,7 @@ interface StoreState {
   auditLog: AuditLogEntry[]
   notifications: Notification[]
   collectionActivities: CollectionActivity[]
+  collectionCases: CollectionCase[]
   groups: BorrowerGroup[]
   collateral: Collateral[]
   payments: PaymentTransaction[]
@@ -188,25 +198,37 @@ interface StoreState {
   ) => Promise<Disbursement>
   loadLedger: (loanId?: string) => Promise<LedgerData>
 
-  recordRepayment: (loanId: string, amount: number, channel: Repayment['channel']) => Promise<Repayment>
-  reverseRepayment: (repaymentId: string, reason: string) => Promise<void>
-  settleLoan: (loanId: string, channel: Repayment['channel']) => Promise<void>
+  recordRepayment: (input: RepaymentInput) => Promise<Repayment>
+  reverseRepayment: (
+    repaymentId: string,
+    reason: string,
+    corrected?: { amount: number; channel?: RepaymentChannel; paymentDate?: string; reference?: string; notes?: string } | null,
+  ) => Promise<Repayment | null>
+  settleLoan: (loanId: string, channel: RepaymentChannel, reference?: string) => Promise<void>
+  recordGroupPayment: (
+    groupId: string,
+    input: { channel: RepaymentChannel; paymentDate: string; reference: string; collectionPoint: string; notes: string; contributions: { loanId: string; amount: number }[] },
+  ) => Promise<GroupPayment>
+  loadGroupPayments: (groupId: string) => Promise<GroupPayment[]>
+  loadReconciliation: (source: StatementSource) => Promise<ReconciliationData>
+  importStatement: (source: StatementSource, lines: { date: string; reference: string; amount: number; description: string }[]) => Promise<{ imported: number; matched: number; duplicates: number }>
+  rematchStatement: (source: StatementSource) => Promise<number>
+  statementLineAction: (lineId: string, action: 'match' | 'ignore' | 'unmatch', body?: { repaymentId?: string; note?: string }) => Promise<void>
   writeOffLoan: (loanId: string, reason: string) => Promise<void>
   restructureLoan: (
     loanId: string,
     input: { newTerm: number; firstDueDate?: string | null; waivePenalties?: boolean; reason?: string },
   ) => Promise<void>
 
-  logCollectionActivity: (
-    loanId: string,
-    input: {
-      kind: CollectionActivityKind
-      outcome?: CollectionOutcome
-      note?: string
-      promisedAmount?: number | null
-      promisedDate?: string | null
-    },
+  logCollectionActivity: (loanId: string, input: CollectionActivityInput) => Promise<void>
+  refreshCollectionCases: () => Promise<void>
+  loadCollectionDashboard: () => Promise<CollectionDashboard>
+  updateCollectionCase: (
+    caseId: string,
+    patch: { assignedToId?: string | null; status?: CollectionCaseStatus; stage?: string; nextAction?: string; nextFollowUp?: string | null; resolutionNote?: string },
   ) => Promise<void>
+  assignCollectionCases: (caseIds: string[], staffId: string) => Promise<void>
+  loadCollectionTimeline: (loanId: string) => Promise<CollectionTimelineEvent[]>
   sendLoanReminder: (loanId: string) => Promise<void>
 
   createGroup: (
@@ -241,6 +263,7 @@ const EMPTY = {
   auditLog: [],
   notifications: [],
   collectionActivities: [],
+  collectionCases: [],
   groups: [],
   collateral: [],
   payments: [],
@@ -251,7 +274,11 @@ const EMPTY = {
 export const useStore = create<StoreState>()((set, get) => {
   // The API returns licenceExpiry as null when unset; the form inputs want a string.
   function normalizeLender(lender: Lender): Lender {
-    return { ...lender, licenceExpiry: lender.licenceExpiry ?? '' }
+    return {
+      ...lender,
+      licenceExpiry: lender.licenceExpiry ?? '',
+      collectionStages: lender.collectionStages?.length ? lender.collectionStages : EMPTY_LENDER.collectionStages,
+    }
   }
 
   async function refreshAudit() {
@@ -269,6 +296,11 @@ export const useStore = create<StoreState>()((set, get) => {
   async function loadDisbursements() {
     const disbursements = await api.get<Disbursement[]>('/disbursements').catch(() => [] as Disbursement[])
     set({ disbursements })
+  }
+
+  async function loadCollectionCases() {
+    const collectionCases = await api.get<CollectionCase[]>('/collections/cases').catch(() => [] as CollectionCase[])
+    set({ collectionCases })
   }
 
   async function loadPayments() {
@@ -324,7 +356,7 @@ export const useStore = create<StoreState>()((set, get) => {
       groups,
       collateral,
     })
-    await Promise.all([refreshAudit(), loadPayments(), loadDisbursements()])
+    await Promise.all([refreshAudit(), loadPayments(), loadDisbursements(), loadCollectionCases()])
   }
 
   return {
@@ -677,8 +709,8 @@ export const useStore = create<StoreState>()((set, get) => {
 
     loadLedger: (loanId) => api.get<LedgerData>(loanId ? `/ledger?loanId=${loanId}` : '/ledger'),
 
-    recordRepayment: async (loanId, amount, channel) => {
-      const repayment = await api.post<Repayment>('/repayments', { loanId, amount, channel })
+    recordRepayment: async (input) => {
+      const repayment = await api.post<Repayment>('/repayments', input)
       const loans = await api.get<Loan[]>('/loans')
       set((s) => ({ repayments: [repayment, ...s.repayments], loans }))
       toast.success('Repayment recorded', repayment.receiptNumber)
@@ -686,16 +718,52 @@ export const useStore = create<StoreState>()((set, get) => {
       return repayment
     },
 
-    reverseRepayment: async (repaymentId, reason) => {
-      const updated = await api.post<Repayment>(`/repayments/${repaymentId}/reverse`, { reason })
-      const loans = await api.get<Loan[]>('/loans')
-      set((s) => ({ repayments: s.repayments.map((r) => (r.id === repaymentId ? updated : r)), loans }))
-      toast.success('Repayment reversed')
+    reverseRepayment: async (repaymentId, reason, corrected) => {
+      const updated = await api.post<Repayment & { corrected?: Repayment }>(`/repayments/${repaymentId}/reverse`, { reason, corrected: corrected ?? null })
+      const [loans, repayments] = await Promise.all([api.get<Loan[]>('/loans'), api.get<Repayment[]>('/repayments')])
+      set({ loans, repayments })
+      toast.success(updated.corrected ? 'Reversed and corrected' : 'Repayment reversed', updated.corrected?.receiptNumber)
+      await refreshAudit()
+      return updated.corrected ?? null
+    },
+
+    recordGroupPayment: async (groupId, input) => {
+      const gp = await api.post<GroupPayment>(`/groups/${groupId}/payments`, input)
+      const [loans, repayments] = await Promise.all([api.get<Loan[]>('/loans'), api.get<Repayment[]>('/repayments')])
+      set({ loans, repayments })
+      toast.success(`Group payment ${gp.number} recorded`, `${input.contributions.filter((c) => c.amount > 0).length} member contribution(s)`)
+      await refreshAudit()
+      return gp
+    },
+
+    loadGroupPayments: (groupId) => api.get<GroupPayment[]>(`/groups/${groupId}/payments`),
+
+    loadReconciliation: (source) => api.get<ReconciliationData>(`/reconciliation?source=${source}`),
+
+    importStatement: async (source, lines) => {
+      const res = await api.post<{ imported: number; matched: number; duplicates: number }>('/reconciliation/import', { source, lines })
+      set({ repayments: await api.get<Repayment[]>('/repayments') })
+      toast.success(`${res.imported} line(s) imported`, `${res.matched} matched automatically${res.duplicates ? `, ${res.duplicates} duplicate(s) skipped` : ''}`)
+      await refreshAudit()
+      return res
+    },
+
+    rematchStatement: async (source) => {
+      const res = await api.post<{ matched: number }>('/reconciliation/rematch', { source })
+      set({ repayments: await api.get<Repayment[]>('/repayments') })
+      toast.success(`${res.matched} more line(s) matched`)
+      return res.matched
+    },
+
+    statementLineAction: async (lineId, action, body = {}) => {
+      await api.post(`/reconciliation/lines/${lineId}/${action}`, body)
+      set({ repayments: await api.get<Repayment[]>('/repayments') })
+      toast.success(action === 'match' ? 'Matched' : action === 'ignore' ? 'Marked as not a repayment' : 'Match removed')
       await refreshAudit()
     },
 
-    settleLoan: async (loanId, channel) => {
-      await api.post<Loan>(`/loans/${loanId}/settle`, { channel })
+    settleLoan: async (loanId, channel, reference = '') => {
+      await api.post<Loan>(`/loans/${loanId}/settle`, { channel, reference })
       const [loans, repayments] = await Promise.all([
         api.get<Loan[]>('/loans'),
         api.get<Repayment[]>('/repayments'),
@@ -731,9 +799,37 @@ export const useStore = create<StoreState>()((set, get) => {
     logCollectionActivity: async (loanId, input) => {
       const created = await api.post<CollectionActivity>(`/loans/${loanId}/collection-activities`, input)
       set((s) => ({ collectionActivities: [created, ...s.collectionActivities] }))
-      toast.success(input.kind === 'promise' ? 'Promise to pay recorded' : 'Contact logged')
+      if (input.payment) {
+        const [loans, repayments] = await Promise.all([api.get<Loan[]>('/loans'), api.get<Repayment[]>('/repayments')])
+        set({ loans, repayments })
+      }
+      await loadCollectionCases()
+      toast.success(
+        input.kind === 'promise' ? 'Promise to pay recorded' : input.kind === 'visit' ? (input.visitStatus === 'scheduled' ? 'Field visit scheduled' : 'Field visit recorded') : input.kind === 'escalation' ? 'Case escalated' : 'Contact logged',
+        input.payment ? `Payment of ${input.payment.amount.toLocaleString()} recorded with its own receipt` : undefined,
+      )
       await refreshAudit()
     },
+
+    refreshCollectionCases: loadCollectionCases,
+
+    loadCollectionDashboard: () => api.get<CollectionDashboard>('/collections/dashboard'),
+
+    updateCollectionCase: async (caseId, patch) => {
+      const updated = await api.patch<CollectionCase>(`/collections/cases/${caseId}`, patch)
+      set((s) => ({ collectionCases: s.collectionCases.map((c) => (c.id === caseId ? updated : c)) }))
+      toast.success('Case updated', updated.number)
+      await refreshAudit()
+    },
+
+    assignCollectionCases: async (caseIds, staffId) => {
+      await api.post('/collections/cases/assign', { caseIds, staffId })
+      await loadCollectionCases()
+      toast.success(`${caseIds.length} case(s) assigned`)
+      await refreshAudit()
+    },
+
+    loadCollectionTimeline: (loanId) => api.get<CollectionTimelineEvent[]>(`/loans/${loanId}/collection-timeline`),
 
     sendLoanReminder: async (loanId) => {
       await api.post(`/loans/${loanId}/send-reminder`, {})

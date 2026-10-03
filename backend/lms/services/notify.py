@@ -105,6 +105,15 @@ def upcoming(lender, borrower, loan, instalment) -> Notification:
     )
 
 
+def promise_reminder(lender, borrower, activity) -> Notification:
+    """Reminder on the day a borrower promised to pay."""
+    body = (
+        f"{borrower.full_name}, this is a reminder of your promise to pay "
+        f"{_money(activity.promised_amount, lender.currency)} today. Thank you — {lender.name}."
+    )
+    return send(lender, borrower=borrower, to=borrower.phone, kind="promise_reminder", body=body)
+
+
 def completed(lender, borrower, loan) -> Notification:
     return send(
         lender, to=borrower.phone, borrower=borrower, kind="loan_completed",

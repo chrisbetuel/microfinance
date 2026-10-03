@@ -94,6 +94,10 @@ def _apply_collection(tx: PaymentTransaction) -> None:
     repayment = loan_service.post_repayment(
         loan=loan, product=product, amount=amount, channel="mobile_money",
         recorded_by=f"{NETWORKS.get(tx.network, tx.network)} ({tx.receipt or tx.provider_ref})",
+        reference=tx.receipt or tx.provider_ref, received_by=tx.initiated_by, branch_id=loan.branch_id,
+        collection_point=NETWORKS.get(tx.network, tx.network),
+        reconciliation_status="reconciled", reconciled_at=timezone.now(), reconciled_by="Payment gateway",
+        reconciliation_note=f"Confirmed by the payment gateway ({tx.reference})",
     )
     tx.repayment = repayment
     audit.record(tx.initiated_by, "received", "payment", tx.id,

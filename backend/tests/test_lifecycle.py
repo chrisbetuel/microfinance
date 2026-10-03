@@ -50,7 +50,7 @@ def test_aging_is_idempotent(loan_ctx):
 
 
 def test_settle_pays_off_and_closes(loan_ctx):
-    r = loan_ctx["cashier"].post(f"/loans/{loan_ctx['loan']['id']}/settle", {"channel": "mobile_money"})
+    r = loan_ctx["cashier"].post(f"/loans/{loan_ctx['loan']['id']}/settle", {"channel": "mobile_money", "reference": "MP-SETTLE-1"})
     assert r.status_code == 200, r.content
     body = r.json()
     assert body["status"] == "closed"
@@ -85,7 +85,7 @@ def test_write_off_needs_supervisor_and_blacklists_borrower(loan_ctx):
 def test_repayment_sends_a_receipt_notification(loan_ctx):
     loan = loan_ctx["loan"]
     loan_ctx["cashier"].post(
-        "/repayments", {"loanId": loan["id"], "amount": loan["schedule"][0]["totalDue"], "channel": "mobile_money"}
+        "/repayments", {"loanId": loan["id"], "amount": loan["schedule"][0]["totalDue"], "channel": "mobile_money", "reference": "MP-LC-1"}
     )
     notifications = loan_ctx["admin"].get("/notifications").json()
     receipts = [n for n in notifications if n["kind"] == "receipt"]

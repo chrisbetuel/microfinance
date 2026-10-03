@@ -25,6 +25,7 @@ from lms.models import (
     Branch,
     Collateral,
     CollectionActivity,
+    CollectionCase,
     Disbursement,
     LedgerEntry,
     GroupAttendance,
@@ -42,7 +43,7 @@ from lms.models import (
     Staff,
     TillReconciliation,
 )
-from lms.services import aging
+from lms.services import aging, collection_cases
 from lms.services import applications as application_service
 from lms.services import disbursements as disbursement_service
 from lms.services import loans as loan_service
@@ -417,9 +418,14 @@ class Command(BaseCommand):
                 nxt = loan.schedule.exclude(status="paid").order_by("period").first()
                 if not nxt:
                     break
+                channel = rng.choice(["mobile_money", "cash", "bank"])
+                paid_on = min(nxt.due_date - timedelta(days=rng.randint(0, 3)), now.date())
+                ref = {"mobile_money": f"MP{paid_on:%y%m%d}{rng.randint(1000, 9999)}",
+                       "bank": f"NMB{rng.randint(100000, 999999)}", "cash": ""}[channel]
                 rp = loan_service.post_repayment(
-                    loan=loan, product=prod, amount=float(nxt.total_due),
-                    channel=rng.choice(["mobile_money", "cash", "bank"]), recorded_by=cashier.name,
+                    loan=loan, product=prod, amount=float(nxt.total_due), channel=channel, recorded_by=cashier.name,
+                    payment_date=paid_on, reference=ref, received_by=cashier, branch_id=loan.branch_id,
+                    collection_point={"cash": "Branch till", "bank": "NMB deposit", "mobile_money": "M-Pesa"}[channel],
                 )
                 audit_record(cashier, "recorded", "repayment", rp.id,
                              f"{float(rp.amount):,.0f} received, receipt {rp.receipt_number}")
@@ -444,6 +450,34 @@ class Command(BaseCommand):
                      f"{len(result)} loans aged, {in_arrears} in arrears")
         for loan in lender.loans.filter(status="active", days_in_arrears__gte=1).select_related("borrower"):
             notify.arrears_reminder(lender, loan.borrower, loan)
+
+        # collection cases for the arrears, with a realistic follow-up history
+        collection_cases.sync(lender)
+        today = timezone.localdate()
+        for n, case in enumerate(CollectionCase.objects.filter(lender=lender).select_related("loan__borrower").order_by("-loan__days_in_arrears")):
+            officer = case.loan.borrower.officer
+            amount = round(float(case.loan.arrears_amount), -3)
+
+            def log(days_ago, **kw):
+                a = CollectionActivity.objects.create(
+                    lender=lender, loan=case.loan, borrower=case.loan.borrower, case=case,
+                    created_by=officer.name, **kw,
+                )
+                CollectionActivity.objects.filter(pk=a.pk).update(created_at=now - timedelta(days=days_ago))
+                a.refresh_from_db()
+                collection_cases.apply_activity(case, a, officer)
+
+            log(9, kind="call", outcome="no_answer", note="Phone off.", next_follow_up=today - timedelta(days=8))
+            log(8, kind="call", outcome="promised", note="Business slow after market closure; will pay end of week.")
+            if n == 0:
+                log(8, kind="promise", outcome="promised", promised_amount=amount, promised_date=today - timedelta(days=4),
+                    reason="Market stall closed for repairs", next_action="Check payment on promise date")
+                log(0, kind="visit", outcome="", visit_status="scheduled", visit_date=today, location="Borrower's shop",
+                    purpose="Follow up the missed promise", next_action="Field visit")
+            else:
+                log(1, kind="promise", outcome="promised", promised_amount=amount, promised_date=today + timedelta(days=2),
+                    reason="Waiting for a customer to pay an invoice", next_action="Confirm payment")
+        collection_cases.sync(lender)
 
         self.stdout.write(self.style.SUCCESS(
             f"Seeded {DEMO_LENDER}: {len(branches)} branches, {Staff.objects.filter(lender=lender).count()} staff, "

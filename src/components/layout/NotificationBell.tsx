@@ -19,6 +19,8 @@ export function NotificationBell() {
   const applications = useStore((s) => s.applications)
   const loans = useStore((s) => s.loans)
   const notifications = useStore((s) => s.notifications)
+  const collectionCases = useStore((s) => s.collectionCases)
+  const collectionActivities = useStore((s) => s.collectionActivities)
 
   const [open, setOpen] = useState(false)
   const [seenTick, setSeenTick] = useState(0)
@@ -26,6 +28,9 @@ export function NotificationBell() {
   const alerts = useMemo(() => {
     if (!currentUser) return []
     return buildAlerts({
+      userId: currentUser?.id,
+      cases: collectionCases,
+      activities: collectionActivities,
       role: currentUser.role,
       branchId: currentUser.branchId,
       lender,
@@ -33,7 +38,7 @@ export function NotificationBell() {
       loans,
       notifications,
     })
-  }, [currentUser, lender, applications, loans, notifications])
+  }, [currentUser, lender, applications, loans, notifications, collectionCases, collectionActivities])
 
   const unseenCount = useMemo(() => {
     void seenTick

@@ -16,12 +16,14 @@ import ApplicationsList from './pages/applications/ApplicationsList'
 import ApplicationForm from './pages/applications/ApplicationForm'
 import ApplicationDetail from './pages/applications/ApplicationDetail'
 import DisbursementQueue from './pages/disbursement/DisbursementQueue'
+import LoanDetail from './pages/loans/LoanDetail'
 import DisbursementPrepare from './pages/disbursement/DisbursementPrepare'
 import DisbursementDetail from './pages/disbursement/DisbursementDetail'
 import Repayments from './pages/repayments/Repayments'
 import SecurityAudit from './pages/security/SecurityAudit'
 import Reports from './pages/reports/Reports'
-import Collections from './pages/collections/Collections'
+import CollectionsHub from './pages/collections/CollectionsHub'
+import CaseDetail from './pages/collections/CaseDetail'
 import Groups from './pages/groups/Groups'
 import GroupForm from './pages/groups/GroupForm'
 import GroupDetail from './pages/groups/GroupDetail'
@@ -100,11 +102,13 @@ export default function App() {
             <Route path="/applications/:id/edit" element={<ApplicationForm />} />
             <Route path="/applications/:id" element={<ApplicationDetail />} />
             <Route path="/disbursement" element={<DisbursementQueue />} />
+            <Route path="/loans/:id" element={<LoanDetail />} />
             <Route path="/disbursement/prepare/:applicationId" element={<DisbursementPrepare />} />
             <Route path="/disbursement/:id" element={<DisbursementDetail />} />
             <Route path="/disbursement/:id/edit" element={<DisbursementPrepare />} />
             <Route path="/repayments" element={<Repayments />} />
-            <Route path="/collections" element={<Collections />} />
+            <Route path="/collections" element={<CollectionsHub />} />
+            <Route path="/collections/:id" element={<CaseDetail />} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/payments" element={<Payments />} />
             <Route path="/reports" element={<Reports />} />

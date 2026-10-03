@@ -103,7 +103,9 @@ def _apply_allocation_result(schedule, result_rows) -> None:
     ScheduleInstalment.objects.bulk_update(schedule, ["paid_amount", "status"])
 
 
-def post_repayment(*, loan, product, amount: float, channel, recorded_by: str) -> Repayment:
+def post_repayment(*, loan, product, amount: float, channel, recorded_by: str, **details) -> Repayment:
+    """Allocate a payment across the schedule and record it. `details` are the
+    Repayment's descriptive fields (payment_date, reference, received_by, …)."""
     schedule = list(loan.schedule.all())
     result = allocate_payment(product, schedule, amount)
     _apply_allocation_result(schedule, result.schedule)
@@ -131,6 +133,8 @@ def post_repayment(*, loan, product, amount: float, channel, recorded_by: str) -
         allocation_principal=result.allocation.principal,
         allocation_remainder=result.remainder,
         recorded_by=recorded_by,
+        balance_after=loan.outstanding_balance,
+        **details,
     )
     ledger.post_repayment(repayment, loan)
     return repayment

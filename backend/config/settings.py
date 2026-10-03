@@ -72,7 +72,8 @@ AUTH_PASSWORD_VALIDATORS = [
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+# Business dates (payment dates, due dates, till days) follow the lender's local day.
+TIME_ZONE = env("LMS_TIME_ZONE", "Africa/Dar_es_Salaam")
 USE_I18N = False
 USE_TZ = True
 

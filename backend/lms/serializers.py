@@ -54,7 +54,7 @@ class LenderSerializer(serializers.ModelSerializer):
             "id", "name", "licence_number", "licence_expiry", "address", "phone", "email",
             "logo_initials", "brand_color", "currency", "language", "plan_level",
             "staff_limit", "active_loan_limit", "sms_balance", "sms_sender_name", "sms_sender_approved",
-            "session_timeout_minutes", "dual_authorisation_threshold",
+            "session_timeout_minutes", "dual_authorisation_threshold", "collection_stages",
         ]
 
 
@@ -71,6 +71,7 @@ class LenderUpdateSerializer(serializers.Serializer):
     language = serializers.CharField(required=False)
     session_timeout_minutes = serializers.IntegerField(required=False, min_value=1, max_value=1440)
     dual_authorisation_threshold = serializers.FloatField(required=False, min_value=0)
+    collection_stages = serializers.ListField(child=serializers.CharField(max_length=40), required=False, min_length=2)
 
 
 # ----------------------------------------------------------------------- branches
@@ -582,14 +583,31 @@ class RestructureSerializer(serializers.Serializer):
 class RepaymentSerializer(serializers.ModelSerializer):
     lender_id = Uuid()
     loan_id = Uuid()
+    received_by_id = Uuid(allow_null=True)
+    branch_id = Uuid(allow_null=True)
+    corrects_id = Uuid(allow_null=True)
+    group_payment_id = Uuid(allow_null=True)
+    collection_activity_id = Uuid(allow_null=True)
+    received_by_name = serializers.SerializerMethodField()
+    corrected_by_id = serializers.SerializerMethodField()
     allocation = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Repayment
         fields = [
             "id", "lender_id", "loan_id", "amount", "date", "channel", "receipt_number",
-            "allocation", "recorded_by", "reversed", "reversal_reason",
+            "allocation", "recorded_by", "reversed", "reversal_reason", "reversed_by", "reversed_at",
+            "payment_date", "reference", "received_by_id", "received_by_name", "branch_id", "collection_point",
+            "notes", "balance_after", "corrects_id", "corrected_by_id", "group_payment_id", "collection_activity_id",
+            "reconciliation_status", "reconciled_at", "reconciled_by", "reconciliation_note",
         ]
+
+    def get_received_by_name(self, obj):
+        return obj.received_by.name if obj.received_by_id else obj.recorded_by
+
+    def get_corrected_by_id(self, obj):
+        fix = next(iter(obj.corrections.all()), None)
+        return str(fix.pk) if fix else None
 
     def get_allocation(self, obj):
         return obj.allocation
@@ -599,10 +617,86 @@ class RepaymentCreateSerializer(serializers.Serializer):
     loan_id = serializers.UUIDField()
     amount = serializers.FloatField()
     channel = serializers.ChoiceField(choices=enums.RepaymentChannel.choices)
+    payment_date = serializers.DateField(required=False, allow_null=True)
+    reference = serializers.CharField(required=False, allow_blank=True, default="", max_length=100)
+    received_by_id = serializers.UUIDField(required=False, allow_null=True)
+    branch_id = serializers.UUIDField(required=False, allow_null=True)
+    collection_point = serializers.CharField(required=False, allow_blank=True, default="", max_length=150)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    collection_activity_id = serializers.UUIDField(required=False, allow_null=True)
+
+
+class CorrectedPaymentSerializer(serializers.Serializer):
+    amount = serializers.FloatField()
+    channel = serializers.ChoiceField(choices=enums.RepaymentChannel.choices, required=False)
+    payment_date = serializers.DateField(required=False, allow_null=True)
+    reference = serializers.CharField(required=False, allow_blank=True, default="")
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class RepaymentReverseSerializer(serializers.Serializer):
     reason = serializers.CharField()
+    corrected = CorrectedPaymentSerializer(required=False, allow_null=True)
+
+
+class GroupPaymentSerializer(serializers.ModelSerializer):
+    group_id = Uuid()
+    received_by_id = Uuid(allow_null=True)
+    repayment_ids = serializers.SerializerMethodField()
+    reconciled = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.GroupPayment
+        fields = ["id", "group_id", "number", "amount", "payment_date", "channel", "reference", "received_by_id",
+                  "collection_point", "notes", "recorded_by", "created_at", "repayment_ids", "reconciled"]
+
+    def get_repayment_ids(self, obj):
+        return [str(r.pk) for r in obj.repayments.all()]
+
+    def get_reconciled(self, obj):
+        rows = list(obj.repayments.all())
+        return bool(rows) and all(r.reconciliation_status == "reconciled" for r in rows if not r.reversed)
+
+
+class ContributionSerializer(serializers.Serializer):
+    loan_id = serializers.UUIDField()
+    amount = serializers.FloatField(min_value=0)
+
+
+class GroupPaymentCreateSerializer(serializers.Serializer):
+    channel = serializers.ChoiceField(choices=enums.RepaymentChannel.choices)
+    payment_date = serializers.DateField(required=False, allow_null=True)
+    reference = serializers.CharField(required=False, allow_blank=True, default="")
+    collection_point = serializers.CharField(required=False, allow_blank=True, default="")
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    contributions = ContributionSerializer(many=True)
+
+
+class StatementLineSerializer(serializers.ModelSerializer):
+    repayment_id = Uuid(allow_null=True)
+    group_payment_id = Uuid(allow_null=True)
+
+    class Meta:
+        model = models.StatementLine
+        fields = ["id", "source", "date", "reference", "amount", "description", "batch", "status", "repayment_id",
+                  "group_payment_id", "note", "imported_by", "imported_at"]
+
+
+class StatementRowSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    reference = serializers.CharField(required=False, allow_blank=True, default="")
+    amount = serializers.FloatField()
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class StatementImportSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(choices=["bank", "mobile_money", "cash"])
+    lines = StatementRowSerializer(many=True)
+
+
+class StatementActionSerializer(serializers.Serializer):
+    repayment_id = serializers.UUIDField(required=False, allow_null=True)
+    note = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 # --------------------------------------------------------------------------- audit
@@ -636,6 +730,7 @@ class CollectionActivitySerializer(serializers.ModelSerializer):
     lender_id = Uuid()
     loan_id = Uuid()
     borrower_id = Uuid()
+    case_id = Uuid(allow_null=True)
     promise_status = serializers.SerializerMethodField()
 
     class Meta:
@@ -643,6 +738,8 @@ class CollectionActivitySerializer(serializers.ModelSerializer):
         fields = [
             "id", "lender_id", "loan_id", "borrower_id", "kind", "outcome", "note",
             "promised_amount", "promised_date", "promise_status", "created_by", "created_at",
+            "case_id", "reason", "next_follow_up", "next_action", "location", "purpose", "amount_collected",
+            "visit_date", "visit_status", "attachments",
         ]
 
     def get_promise_status(self, obj):
@@ -859,11 +956,83 @@ class CollectionActivityCreateSerializer(serializers.Serializer):
     note = serializers.CharField(required=False, allow_blank=True, default="")
     promised_amount = serializers.FloatField(required=False, allow_null=True)
     promised_date = serializers.DateField(required=False, allow_null=True)
+    reason = serializers.CharField(required=False, allow_blank=True, default="", max_length=250)
+    next_follow_up = serializers.DateField(required=False, allow_null=True)
+    next_action = serializers.CharField(required=False, allow_blank=True, default="", max_length=250)
+    location = serializers.CharField(required=False, allow_blank=True, default="", max_length=250)
+    purpose = serializers.CharField(required=False, allow_blank=True, default="", max_length=250)
+    amount_collected = serializers.FloatField(required=False, allow_null=True, min_value=0)
+    visit_date = serializers.DateField(required=False, allow_null=True)
+    visit_status = serializers.ChoiceField(choices=["", "scheduled", "completed"], required=False, default="")
+    attachments = serializers.ListField(child=serializers.CharField(max_length=200), required=False, default=list)
+    payment = CorrectedPaymentSerializer(required=False, allow_null=True)
 
     def validate(self, data):
         if data["kind"] == "promise" and not data.get("promised_amount"):
             raise serializers.ValidationError("A promise needs a promised amount")
+        if data["kind"] == "promise" and not data.get("promised_date"):
+            raise serializers.ValidationError("A promise needs a promise date")
+        if data["kind"] == "visit" and not data.get("visit_status"):
+            data["visit_status"] = "completed"
+        if data["kind"] == "escalation" and not data.get("note", "").strip():
+            raise serializers.ValidationError("Say why the case is being escalated")
+        if data.get("payment") and data["kind"] not in ("visit", "call", "note"):
+            raise serializers.ValidationError("Payments can only be taken during a visit or contact")
         return data
+
+
+class CollectionCaseSerializer(serializers.ModelSerializer):
+    loan_id = Uuid()
+    assigned_to_id = Uuid(allow_null=True)
+    loan_number = serializers.CharField(source="loan.loan_number", read_only=True)
+    borrower_id = Uuid(source="loan.borrower_id")
+    borrower_name = serializers.CharField(source="loan.borrower.full_name", read_only=True)
+    group_id = Uuid(source="loan.group_id", allow_null=True)
+    group_name = serializers.SerializerMethodField()
+    branch_id = Uuid(source="loan.branch_id")
+    assigned_to_name = serializers.SerializerMethodField()
+    figures = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.CollectionCase
+        fields = [
+            "id", "number", "loan_id", "loan_number", "borrower_id", "borrower_name", "group_id", "group_name",
+            "branch_id", "status", "stage", "assigned_to_id", "assigned_to_name", "assigned_by", "assigned_at",
+            "next_action", "next_follow_up", "opened_at", "closed_at", "resolution_note", "last_contact_at", "figures",
+        ]
+
+    def get_group_name(self, obj):
+        return obj.loan.group.name if obj.loan.group_id else None
+
+    def get_assigned_to_name(self, obj):
+        return obj.assigned_to.name if obj.assigned_to_id else ""
+
+    def get_figures(self, obj):
+        from lms.services.collection_cases import case_figures
+
+        return case_figures(obj)
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        data.update(data.pop("figures"))  # flatten the loan figures into the case
+        return data
+
+
+class CollectionCaseUpdateSerializer(serializers.Serializer):
+    assigned_to_id = serializers.UUIDField(required=False, allow_null=True)
+    status = serializers.ChoiceField(choices=[
+        "pending_follow_up", "contacted", "promise_to_pay", "promise_kept", "promise_broken",
+        "field_visit_required", "under_review", "escalated", "resolved", "paid",
+    ], required=False)
+    stage = serializers.CharField(required=False, max_length=40)
+    next_action = serializers.CharField(required=False, allow_blank=True, max_length=250)
+    next_follow_up = serializers.DateField(required=False, allow_null=True)
+    resolution_note = serializers.CharField(required=False, allow_blank=True, max_length=250)
+
+
+class CollectionCaseAssignSerializer(serializers.Serializer):
+    case_ids = serializers.ListField(child=serializers.UUIDField(), min_length=1)
+    staff_id = serializers.UUIDField()
 
 
 # ---------------------------------------------------------------- sms & payments

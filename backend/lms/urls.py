@@ -66,8 +66,18 @@ urlpatterns = [
     path("loans/<uuid:loan_id>/send-reminder", v.LoanReminderView.as_view()),
 
     path("collection-activities", v.CollectionActivitiesView.as_view()),
+    path("collections/cases", v.CollectionCasesView.as_view()),
+    path("collections/cases/assign", v.CollectionCasesAssignView.as_view()),
+    path("collections/cases/<uuid:case_id>", v.CollectionCaseDetailView.as_view()),
+    path("collections/dashboard", v.CollectionDashboardView.as_view()),
+    path("loans/<uuid:loan_id>/collection-timeline", v.LoanCollectionTimelineView.as_view()),
 
     path("repayments", v.RepaymentsView.as_view()),
+    path("groups/<uuid:group_id>/payments", v.GroupPaymentsView.as_view()),
+    path("reconciliation", v.ReconciliationView.as_view()),
+    path("reconciliation/import", v.StatementImportView.as_view()),
+    path("reconciliation/rematch", v.StatementRematchView.as_view()),
+    path("reconciliation/lines/<uuid:line_id>/<str:action>", v.StatementLineActionView.as_view()),
     path("repayments/<uuid:repayment_id>/reverse", v.RepaymentReverseView.as_view()),
 
     path("till/today", v.TillTodayView.as_view()),

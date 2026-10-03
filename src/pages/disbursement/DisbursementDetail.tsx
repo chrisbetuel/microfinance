@@ -21,7 +21,7 @@ const FREQ: Record<string, string> = { daily: 'daily', weekly: 'weekly', fortnig
 const AUTHORISER_ROLES = ['lender_admin', 'branch_manager', 'credit_committee']
 
 /** Loan information, read from the approved application — never re-entered. */
-export function LoanInformation({ applicationId, loanNumber }: { applicationId: string; loanNumber?: string | null }) {
+export function LoanInformation({ applicationId, loanNumber, loanId }: { applicationId: string; loanNumber?: string | null; loanId?: string | null }) {
   const application = useStore((s) => s.applications.find((a) => a.id === applicationId))
   const borrower = useStore((s) => s.borrowers.find((b) => b.id === application?.borrowerId))
   const product = useStore((s) => s.products.find((p) => p.id === application?.productId))
@@ -38,7 +38,7 @@ export function LoanInformation({ applicationId, loanNumber }: { applicationId: 
     <Card>
       <CardHeader title="Loan information" subtitle="From the approved application" />
       <dl className="grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
-        <Row k="Loan number" v={loanNumber ?? <span className="text-slate-400">Assigned when the transfer is confirmed</span>} />
+        <Row k="Loan number" v={loanNumber ? (loanId ? <Link to={`/loans/${loanId}`} className="text-brand-700 hover:underline">{loanNumber}</Link> : loanNumber) : <span className="text-slate-400">Assigned when the transfer is confirmed</span>} />
         <Row k={group ? 'Borrower / group' : 'Borrower'} v={<Link to={`/borrowers/${borrower.id}`} className="text-brand-700 hover:underline">{borrower.fullName}{group ? ` · ${group.name}` : ''}</Link>} />
         <Row k="Customer ID" v={borrower.customerNumber} />
         <Row k="Loan product" v={product.name} />
@@ -154,7 +154,7 @@ export default function DisbursementDetail() {
 
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
-          <LoanInformation applicationId={d.applicationId} loanNumber={d.loanNumber} />
+          <LoanInformation applicationId={d.applicationId} loanNumber={d.loanNumber} loanId={d.loanId} />
 
           <Card>
             <CardHeader title="Payment destination" />

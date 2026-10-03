@@ -103,3 +103,4 @@ class RepaymentChannel(models.TextChoices):
     BANK = "bank"
     CASH = "cash"
     FIELD = "field"
+    OTHER = "other"  # another approved method (e.g. cheque, agent banking)

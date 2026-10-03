@@ -4,8 +4,9 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from lms.enums import LoanStatus
-from lms.models import Loan
+from lms.models import CollectionActivity, Loan, Repayment
 from lms.services import notify
+from lms.services.collections import promise_status
 
 
 class Command(BaseCommand):
@@ -49,4 +50,18 @@ class Command(BaseCommand):
                     upcoming += 1
                     tally(notify.upcoming(loan.lender, loan.borrower, loan, inst))
 
-        self.stdout.write(f"reminders: {sent} sent, {failed} not sent ({upcoming} upcoming-payment)")
+        # promise-to-pay day: remind the borrower of what they promised
+        promised = 0
+        today = timezone.localdate()
+        promises = CollectionActivity.objects.filter(kind="promise", promised_date=today, loan__status=LoanStatus.ACTIVE) \
+            .select_related("lender", "borrower")
+        if opts.get("lender"):
+            promises = promises.filter(lender_id=opts["lender"])
+        for p in promises:
+            if promise_status(p, Repayment.objects.filter(loan_id=p.loan_id, reversed=False)) == "pending":
+                promised += 1
+                tally(notify.promise_reminder(p.lender, p.borrower, p))
+
+        self.stdout.write(
+            f"reminders: {sent} sent, {failed} not sent ({upcoming} upcoming-payment, {promised} promise-to-pay)"
+        )

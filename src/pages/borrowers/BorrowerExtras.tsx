@@ -59,7 +59,7 @@ export function LoanHistory({ loans }: { loans: Loan[] }) {
                 const late = l.schedule.filter((i) => i.wasLate).length
                 return (
                   <tr key={l.id}>
-                    <td className="px-4 py-3 font-mono text-xs">{loanNumber(loans, l)}</td>
+                    <td className="px-4 py-3 font-mono text-xs"><Link to={`/loans/${l.id}`} className="text-brand-700 hover:underline">{loanNumber(loans, l)}</Link></td>
                     <td className="px-4 py-3">{products.find((p) => p.id === l.productId)?.name ?? '—'}</td>
                     <td className="px-4 py-3">{l.disbursement ? formatDate(l.disbursement.date) : '—'}</td>
                     <td className="px-4 py-3 tabular-nums">{formatMoney(l.principal)}</td>

@@ -1,4 +1,4 @@
-import type { Application, Lender, Loan, Notification, StaffRole } from '../types'
+import type { Application, CollectionActivity, CollectionCase, Lender, Loan, Notification, StaffRole } from '../types'
 import { isSupervisor } from './permissions'
 import { daysLate } from './selectors'
 
@@ -19,6 +19,9 @@ export function buildAlerts(params: {
   applications: Application[]
   loans: Loan[]
   notifications: Notification[]
+  userId?: string | null
+  cases?: CollectionCase[]
+  activities?: CollectionActivity[]
 }): Alert[] {
   const { role, lender, applications, loans, notifications } = params
   const alerts: Alert[] = []
@@ -56,6 +59,62 @@ export function buildAlerts(params: {
         title: `${toDisburse.length} loan${toDisburse.length > 1 ? 's' : ''} approved, awaiting disbursement`,
         detail: 'Release funds from the disbursement queue',
         href: '/disbursement',
+      })
+    }
+  }
+
+  // collection officer: their own follow-ups, promises and visits
+  const today = new Date().toLocaleDateString('en-CA')
+  const mine = (params.cases ?? []).filter((c) => c.assignedToId === params.userId && c.status !== 'resolved' && c.status !== 'paid')
+  const followUps = mine.filter((c) => c.nextFollowUp && c.nextFollowUp <= today)
+  if (followUps.length) {
+    alerts.push({
+      key: `followups:${today}:${followUps.length}`, tone: 'amber', href: '/collections',
+      title: `${followUps.length} case${followUps.length > 1 ? 's' : ''} need follow-up today`,
+      detail: followUps.slice(0, 3).map((c) => c.borrowerName).join(', '),
+    })
+  }
+  const promisesToday = mine.filter((c) => c.openPromise?.date === today)
+  if (promisesToday.length) {
+    alerts.push({
+      key: `promises:${today}:${promisesToday.length}`, tone: 'brand', href: '/collections',
+      title: `${promisesToday.length} promise${promisesToday.length > 1 ? 's' : ''} to pay due today`,
+      detail: 'Check the payments came in',
+    })
+  }
+  const missed = mine.filter((c) => c.status === 'promise_broken')
+  if (missed.length) {
+    alerts.push({
+      key: `missed:${missed.map((c) => c.id).join(',')}`, tone: 'red', href: '/collections',
+      title: `${missed.length} missed promise${missed.length > 1 ? 's' : ''}`,
+      detail: missed.slice(0, 3).map((c) => c.borrowerName).join(', '),
+    })
+  }
+  const myLoans = new Set(mine.map((c) => c.loanId))
+  const visits = (params.activities ?? []).filter((a) => a.kind === 'visit' && a.visitStatus === 'scheduled' && a.visitDate === today && myLoans.has(a.loanId))
+  if (visits.length) {
+    alerts.push({
+      key: `visits:${today}:${visits.length}`, tone: 'brand', href: '/collections',
+      title: `${visits.length} field visit${visits.length > 1 ? 's' : ''} scheduled today`,
+      detail: 'See the field visits list',
+    })
+  }
+  // managers: escalations and large overdue balances
+  if (isSupervisor(role)) {
+    const escalated = (params.cases ?? []).filter((c) => c.status === 'escalated')
+    if (escalated.length) {
+      alerts.push({
+        key: `escalated:${escalated.map((c) => c.id).join(',')}`, tone: 'red', href: '/collections',
+        title: `${escalated.length} escalated collection case${escalated.length > 1 ? 's' : ''}`,
+        detail: 'Needs management review',
+      })
+    }
+    const big = (params.cases ?? []).filter((c) => c.overdueAmount >= 1_000_000 && c.status !== 'resolved' && c.status !== 'paid')
+    if (big.length) {
+      alerts.push({
+        key: `bigoverdue:${big.length}`, tone: 'red', href: '/collections',
+        title: `${big.length} loan${big.length > 1 ? 's' : ''} with significant overdue balances`,
+        detail: big.slice(0, 3).map((c) => c.borrowerName).join(', '),
       })
     }
   }

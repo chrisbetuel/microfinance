@@ -28,7 +28,7 @@ def test_position_reflects_cash_in_and_out(cashier_ctx):
     cashier = cashier_ctx["cashier"]
     loan = cashier_ctx["loan"]
     cashier.post("/repayments", {"loanId": loan["id"], "amount": 150_000, "channel": "cash"})
-    cashier.post("/repayments", {"loanId": loan["id"], "amount": 50_000, "channel": "mobile_money"})
+    cashier.post("/repayments", {"loanId": loan["id"], "amount": 50_000, "channel": "mobile_money", "reference": "MP-TILL"})
 
     pos = cashier.get("/till/today").json()
     assert pos["cashIn"] == 150_000  # only the cash repayment

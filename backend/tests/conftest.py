@@ -7,6 +7,12 @@ def _enable_db(db):
     """Every test in this suite touches the database."""
 
 
+@pytest.fixture(autouse=True)
+def _utc_business_day(settings):
+    """Tests compare against date.today() on a UTC clock; keep business dates in UTC too."""
+    settings.TIME_ZONE = "UTC"
+
+
 @pytest.fixture
 def client():
     return APIClient()

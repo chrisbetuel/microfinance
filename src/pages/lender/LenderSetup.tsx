@@ -113,6 +113,18 @@ function ProfileTab() {
               onChange={(e) => setForm({ ...form, dualAuthorisationThreshold: Number(e.target.value) })}
             />
           </Field>
+          <div className="sm:col-span-2">
+            <Field label="Collection stages" hint="In order, one per line. Cases move through these from first due date to resolution.">
+              <textarea
+                rows={4}
+                className={inputClass}
+                value={(form.collectionStages?.length ? form.collectionStages : ['payment_due', 'reminder', 'overdue', 'contact_attempt', 'promise_to_pay', 'follow_up', 'field_visit', 'escalation', 'resolution']).join('\n')}
+                onChange={(e) =>
+                  setForm({ ...form, collectionStages: e.target.value.split('\n').map((x) => x.trim().toLowerCase().replace(/\s+/g, '_')).filter(Boolean) })
+                }
+              />
+            </Field>
+          </div>
           {canEdit && (
             <div className="sm:col-span-2">
               <Button type="submit">Save changes</Button>

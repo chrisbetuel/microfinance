@@ -6,6 +6,8 @@ import { NAV_ACCESS } from '../../lib/permissions'
 
 // Sections every authenticated user can reach, regardless of role.
 const ALWAYS_ALLOWED = ['/', '/profile']
+// Pages reachable from several sections: allowed if the role has any of them.
+const SHARED: Record<string, string[]> = { '/loans': ['/borrowers', '/repayments', '/collections'] }
 
 function sectionFor(pathname: string): string {
   if (pathname === '/') return '/'
@@ -20,7 +22,8 @@ export function RouteGuard({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!role) return
     const section = sectionFor(location.pathname)
-    if (!ALWAYS_ALLOWED.includes(section) && !NAV_ACCESS[role].includes(section)) {
+    const allowed = SHARED[section] ? SHARED[section].some((x) => NAV_ACCESS[role].includes(x)) : NAV_ACCESS[role].includes(section)
+    if (!ALWAYS_ALLOWED.includes(section) && !allowed) {
       navigate('/', { replace: true })
     }
   }, [location.pathname, role, navigate])
