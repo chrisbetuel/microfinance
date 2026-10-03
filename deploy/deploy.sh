@@ -24,7 +24,12 @@ echo "==> deploying $(git log --oneline -1)"
 
 echo "==> building the frontend (API at /api)"
 rm -rf dist
-VITE_API_BASE_URL=/api npx vite build >/dev/null
+# MSYS_NO_PATHCONV: stop Git Bash on Windows rewriting /api into C:/Program Files/Git/api
+MSYS_NO_PATHCONV=1 VITE_API_BASE_URL=/api npx vite build >/dev/null
+if grep -rq "Program Files" dist/assets; then
+  echo "frontend build has a Windows path baked in — aborting" >&2
+  exit 1
+fi
 
 echo "==> backing up the database"
 ssh "$TARGET" "sudo -u oweru-lms $APP/.venv/bin/python $APP/backup_db.py"
