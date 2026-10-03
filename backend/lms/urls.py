@@ -75,6 +75,9 @@ urlpatterns = [
 
     path("repayments", v.RepaymentsView.as_view()),
     path("groups/<uuid:group_id>/payments", v.GroupPaymentsView.as_view()),
+    path("groups/<uuid:group_id>/portal-account", v.GroupPortalAccountView.as_view()),
+    path("portal/login", v.PortalLoginView.as_view()),
+    path("portal/me", v.PortalMeView.as_view()),
     path("reconciliation", v.ReconciliationView.as_view()),
     path("reconciliation/import", v.StatementImportView.as_view()),
     path("reconciliation/rematch", v.StatementRematchView.as_view()),

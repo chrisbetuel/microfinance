@@ -20,6 +20,7 @@ import { GROUP_TYPE_LABELS, groupSummary } from './groupStats'
 import type { GroupLoanStatus } from './groupStats'
 import { GROUP_STATUS_TONE } from './Groups'
 import { GroupPaymentsTab } from './GroupPayments'
+import { GroupPortalCard } from './GroupPortalCard'
 
 const ROLE_LABEL: Record<GroupMemberRole, string> = { chair: 'Chairperson', secretary: 'Secretary', treasurer: 'Treasurer', member: 'Member' }
 const ROLE_TONE: Record<GroupMemberRole, BadgeTone> = { chair: 'blue', secretary: 'green', treasurer: 'amber', member: 'slate' }
@@ -149,6 +150,14 @@ export default function GroupDetail() {
             <Info k="Meeting attendance" v={s.attendanceRate == null ? '—' : `${s.attendanceRate.toFixed(0)}%`} />
           </dl>
         </Card>
+      </div>
+
+      <div className="mb-6">
+        <GroupPortalCard
+          group={group}
+          canEdit={canEdit}
+          chairPhone={group.memberships.find((m) => m.role === 'chair' && m.status === 'active')?.borrowerPhone}
+        />
       </div>
 
       <Card className="p-5">

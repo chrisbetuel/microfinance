@@ -94,6 +94,9 @@ const EMPTY_LENDER: Lender = {
   smsSenderApproved: false,
   sessionTimeoutMinutes: 20,
   dualAuthorisationThreshold: 5_000_000,
+  mobileMoneyNumber: '0618750312',
+  mobileMoneyNetwork: '',
+  mobileMoneyAccountName: '',
   collectionStages: ['payment_due', 'reminder', 'overdue', 'contact_attempt', 'promise_to_pay', 'follow_up', 'field_visit', 'escalation', 'resolution'],
 }
 

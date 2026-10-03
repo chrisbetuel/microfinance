@@ -6,6 +6,7 @@
 import { emitSessionExpired } from './session'
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '')
+export const API_BASE_URL = BASE_URL
 const TOKEN_KEY = 'lms-token'
 
 export function getToken(): string | null {

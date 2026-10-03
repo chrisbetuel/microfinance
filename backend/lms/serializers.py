@@ -55,6 +55,7 @@ class LenderSerializer(serializers.ModelSerializer):
             "logo_initials", "brand_color", "currency", "language", "plan_level",
             "staff_limit", "active_loan_limit", "sms_balance", "sms_sender_name", "sms_sender_approved",
             "session_timeout_minutes", "dual_authorisation_threshold", "collection_stages",
+            "mobile_money_number", "mobile_money_network", "mobile_money_account_name",
         ]
 
 
@@ -72,6 +73,10 @@ class LenderUpdateSerializer(serializers.Serializer):
     session_timeout_minutes = serializers.IntegerField(required=False, min_value=1, max_value=1440)
     dual_authorisation_threshold = serializers.FloatField(required=False, min_value=0)
     collection_stages = serializers.ListField(child=serializers.CharField(max_length=40), required=False, min_length=2)
+    mobile_money_number = serializers.RegexField(r"^\+?[0-9 ]{9,16}$", required=False, allow_blank=True,
+                                                 error_messages={"invalid": "Enter a phone number, e.g. 0618750312"})
+    mobile_money_network = serializers.CharField(required=False, allow_blank=True, max_length=40)
+    mobile_money_account_name = serializers.CharField(required=False, allow_blank=True, max_length=120)
 
 
 # ----------------------------------------------------------------------- branches
@@ -1277,3 +1282,21 @@ class LedgerEntrySerializer(serializers.ModelSerializer):
 
     def get_loan_number(self, obj):
         return obj.loan.loan_number if obj.loan_id else None
+
+
+class PortalLoginSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=60)
+    password = serializers.CharField(max_length=128)
+
+
+class PortalAccountWriteSerializer(serializers.Serializer):
+    username = serializers.RegexField(r"^[A-Za-z0-9._-]{3,60}$", required=False,
+                                      error_messages={"invalid": "Use 3–60 letters, digits, dots, dashes or underscores"})
+    password = serializers.CharField(min_length=6, max_length=128, required=False)
+    active = serializers.BooleanField(required=False)
+
+
+class PortalAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.PortalAccount
+        fields = ["username", "active", "created_by", "created_at", "last_login_at"]

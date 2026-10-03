@@ -14,6 +14,7 @@ import { useCanEdit } from '../../lib/useCanEdit'
 import { isSupervisor } from '../../lib/permissions'
 import { BorrowerSavings } from './BorrowerSavings'
 import { StatusBadge } from './StatusBadge'
+import { ShareWhatsAppButton } from '../../components/ShareWhatsAppButton'
 import { RequestPaymentModal } from '../payments/Payments'
 import { AlsoGuarantees, CollateralTab, GuaranteesGiven, LoanHistory, TransactionLedger, loanStatusLabel } from './BorrowerExtras'
 import type { ApplicationStatus, BorrowerStatus, DisbursementChannel, Loan, Repayment } from '../../types'
@@ -112,6 +113,7 @@ export default function BorrowerDetail() {
               <Button variant="secondary" onClick={() => navigate(`/messages?borrower=${borrower.id}`)}>
                 Send SMS
               </Button>
+              <ShareWhatsAppButton borrowerId={borrower.id} />
               {borrower.verified ? (
                 <Button variant="secondary" onClick={() => void verifyBorrower(borrower.id, false, false)}>Remove verification</Button>
               ) : (

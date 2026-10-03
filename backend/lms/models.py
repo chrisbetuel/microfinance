@@ -37,6 +37,10 @@ class Lender(models.Model):
     dual_authorisation_threshold = models.DecimalField(max_digits=14, decimal_places=2, default=5_000_000)
     # the lender's collection stages, in order (empty = services.collection_cases.DEFAULT_STAGES)
     collection_stages = models.JSONField(default=list, blank=True)
+    # where borrowers send mobile-money repayments (shown in SMS, the group portal and statements)
+    mobile_money_number = models.CharField(max_length=30, blank=True, default="0618750312")
+    mobile_money_network = models.CharField(max_length=40, blank=True, default="")
+    mobile_money_account_name = models.CharField(max_length=120, blank=True, default="")
     created_at = models.DateTimeField(default=timezone.now)
 
 
@@ -1065,3 +1069,17 @@ class CollectionCaseEvent(models.Model):
 
     class Meta:
         ordering = ["at"]
+
+
+class PortalAccount(models.Model):
+    """Read-only portal login for a group (see services/portal.py)."""
+
+    id = uuid_pk()
+    lender = models.ForeignKey(Lender, on_delete=models.CASCADE, related_name="portal_accounts")
+    group = models.OneToOneField("BorrowerGroup", on_delete=models.CASCADE, related_name="portal_account")
+    username = models.CharField(max_length=60, unique=True)
+    password = models.CharField(max_length=128)  # Django password hash
+    active = models.BooleanField(default=True)
+    created_by = models.CharField(max_length=150)
+    created_at = models.DateTimeField(default=timezone.now)
+    last_login_at = models.DateTimeField(null=True, blank=True)

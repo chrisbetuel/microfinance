@@ -66,6 +66,7 @@ export function RecordPaymentForm({
   const currency = useStore((s) => s.lender.currency)
   const recordRepayment = useStore((s) => s.recordRepayment)
   const me = staff.find((s) => s.id === currentStaffId)
+  const lender = useStore((s) => s.lender)
   const product = products.find((p) => p.id === loan.productId)
   const summary = loanSummary(loan, repayments)
 
@@ -145,6 +146,13 @@ export function RecordPaymentForm({
           </Field>
         </div>
 
+        {channel === 'mobile_money' && lender.mobileMoneyNumber && (
+          <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-800">
+            The borrower sends the money to the company number <b>{lender.mobileMoneyNumber}</b>
+            {lender.mobileMoneyNetwork ? ` (${lender.mobileMoneyNetwork})` : ''} with loan number <b>{loan.loanNumber}</b> as the reference.
+            Enter the transaction code from their confirmation SMS. The mobile-money statement import then confirms the money arrived.
+          </p>
+        )}
         {preview && !tooMuch && (
           <div className="rounded-xl border border-slate-200 p-4">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">How this payment is applied ({order.join(' → ')})</p>

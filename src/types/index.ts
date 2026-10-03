@@ -40,6 +40,9 @@ export interface Lender {
   sessionTimeoutMinutes: number
   dualAuthorisationThreshold: number
   collectionStages: string[]
+  mobileMoneyNumber: string
+  mobileMoneyNetwork: string
+  mobileMoneyAccountName: string
 }
 
 export interface Branch {

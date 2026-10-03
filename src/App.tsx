@@ -17,6 +17,7 @@ import ApplicationForm from './pages/applications/ApplicationForm'
 import ApplicationDetail from './pages/applications/ApplicationDetail'
 import DisbursementQueue from './pages/disbursement/DisbursementQueue'
 import LoanDetail from './pages/loans/LoanDetail'
+import GroupPortal from './pages/portal/GroupPortal'
 import DisbursementPrepare from './pages/disbursement/DisbursementPrepare'
 import DisbursementDetail from './pages/disbursement/DisbursementDetail'
 import Repayments from './pages/repayments/Repayments'
@@ -68,6 +69,15 @@ export default function App() {
     window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
   }, [logout, navigate])
+
+  if (location.pathname.startsWith('/portal')) {
+    return (
+      <>
+        <Toaster />
+        <GroupPortal />
+      </>
+    )
+  }
 
   return (
     <>

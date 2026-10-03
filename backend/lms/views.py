@@ -1,10 +1,11 @@
 from datetime import date, timedelta
 
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import transaction
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -40,6 +41,7 @@ from lms.models import (
     Loan,
     LoanProduct,
     PaymentTransaction,
+    PortalAccount,
     ProductFee,
     Repayment,
     SavingsAccount,
@@ -66,6 +68,7 @@ from lms.services import (
     disbursements as disbursement_service,
     collection_cases as case_service,
     ledger as ledger_service,
+    portal as portal_service,
     products as product_service,
     repayments as repayment_service,
     gateway as gateway_service,
@@ -2421,3 +2424,90 @@ class LedgerView(APIView):
             "accounts": [{"code": code, "name": name, "balance": balances[code]} for code, name in ledger_service.ACCOUNTS.items()],
             "reconciliation": ledger_service.reconciliation(lender),
         })
+
+
+# ------------------------------------------------------------------- group portal
+
+class PortalUnauthorized(APIException):
+    """401 for the portal, which has no DRF authenticator (DRF would otherwise answer 403)."""
+
+    status_code = 401
+    default_detail = "Sign in to the group portal"
+
+
+class GroupPortalAccountView(APIView):
+    """Staff side: create, reset or switch off a group's portal login."""
+
+    permission_classes = [IsAuthenticated, section_editor("borrowers")]
+
+    def _group(self, request, group_id):
+        group = BorrowerGroup.objects.filter(pk=group_id, lender=request.user.lender).first()
+        if group is None:
+            raise NotFound("Group not found")
+        return group
+
+    def get(self, request, group_id):
+        account = PortalAccount.objects.filter(group=self._group(request, group_id)).first()
+        return Response({"account": ser.PortalAccountSerializer(account).data if account else None})
+
+    def post(self, request, group_id):
+        group = self._group(request, group_id)
+        data = validated(ser.PortalAccountWriteSerializer, request.data)
+        if not data.get("password"):
+            raise UnprocessableEntity("Set a password of at least 6 characters")
+        account = PortalAccount.objects.filter(group=group).first()
+        username = (data.get("username") or (account.username if account else group.group_number)).lower()
+        if PortalAccount.objects.filter(username=username).exclude(group=group).exists():
+            raise Conflict("That username is taken")
+        with transaction.atomic():
+            if account is None:
+                account = PortalAccount(lender=group.lender, group=group, created_by=request.user.name)
+            account.username = username
+            account.password = make_password(data["password"])
+            account.active = True
+            account.save()
+            audit.record(request.user, "updated", "portal_account", account.id, f"Portal login for {group.name}: {username}")
+        return Response(ser.PortalAccountSerializer(account).data, status=status.HTTP_201_CREATED)
+
+    def patch(self, request, group_id):
+        account = PortalAccount.objects.filter(group=self._group(request, group_id)).first()
+        if account is None:
+            raise NotFound("This group has no portal login")
+        data = validated(ser.PortalAccountWriteSerializer, request.data)
+        if "active" in data:
+            account.active = data["active"]
+            account.save(update_fields=["active"])
+            audit.record(request.user, "updated", "portal_account", account.id,
+                         f"Portal login {'enabled' if account.active else 'disabled'} for {account.group.name}")
+        return Response(ser.PortalAccountSerializer(account).data)
+
+
+class PortalLoginView(APIView):
+    """The group's login. Returns a portal token (not a staff token)."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        data = validated(ser.PortalLoginSerializer, request.data)
+        account = PortalAccount.objects.filter(username=data["username"].strip().lower()).select_related("group").first()
+        if account is None or not check_password(data["password"], account.password):
+            raise PortalUnauthorized("Incorrect username or password")
+        if not account.active or account.group.status == "closed":
+            raise PortalUnauthorized("This portal login has been switched off — contact your loan officer")
+        account.last_login_at = timezone.now()
+        account.save(update_fields=["last_login_at"])
+        return Response({"token": portal_service.issue_token(account)})
+
+
+class PortalMeView(APIView):
+    """Read-only view of the group for its portal login."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        account = portal_service.account_from_header(request.headers.get("Authorization", ""))
+        if account is None:
+            raise PortalUnauthorized("Sign in to the group portal")
+        return Response(portal_service.snapshot(account))

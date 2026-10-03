@@ -89,9 +89,19 @@ def arrears_reminder(lender, borrower, loan) -> Notification:
         lender, to=borrower.phone, borrower=borrower, kind="arrears_reminder",
         body=(
             f"{borrower.full_name}, your loan is {loan.days_in_arrears} day(s) overdue with "
-            f"{_money(loan.arrears_amount, lender.currency)} due. Please pay at any branch or via mobile money."
+            f"{_money(loan.arrears_amount, lender.currency)} due. Please pay at any branch"
+            + (f" or{_pay_hint(lender, loan)[4:]}" if lender.mobile_money_number else " or via mobile money.")
         ),
     )
+
+
+def _pay_hint(lender, loan=None) -> str:
+    """ " Pay by mobile money to 0618750312 (ref LN-000012)." — empty if no number is set."""
+    if not lender.mobile_money_number:
+        return ""
+    network = f"{lender.mobile_money_network} " if lender.mobile_money_network else ""
+    ref = f" (ref {loan.loan_number})" if loan is not None and getattr(loan, "loan_number", "") else ""
+    return f" Pay by {network}mobile money to {lender.mobile_money_number}{ref}."
 
 
 def upcoming(lender, borrower, loan, instalment) -> Notification:
@@ -100,7 +110,7 @@ def upcoming(lender, borrower, loan, instalment) -> Notification:
         lender, to=borrower.phone, borrower=borrower, kind="upcoming_payment",
         body=(
             f"{borrower.full_name}, a payment of {_money(due, lender.currency)} is due on "
-            f"{instalment.due_date:%d %b %Y}. Thank you for paying on time."
+            f"{instalment.due_date:%d %b %Y}.{_pay_hint(lender, loan)} Thank you for paying on time."
         ),
     )
 
@@ -109,7 +119,7 @@ def promise_reminder(lender, borrower, activity) -> Notification:
     """Reminder on the day a borrower promised to pay."""
     body = (
         f"{borrower.full_name}, this is a reminder of your promise to pay "
-        f"{_money(activity.promised_amount, lender.currency)} today. Thank you — {lender.name}."
+        f"{_money(activity.promised_amount, lender.currency)} today.{_pay_hint(lender, activity.loan)} Thank you — {lender.name}."
     )
     return send(lender, borrower=borrower, to=borrower.phone, kind="promise_reminder", body=body)
 

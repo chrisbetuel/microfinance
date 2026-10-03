@@ -113,6 +113,21 @@ function ProfileTab() {
               onChange={(e) => setForm({ ...form, dualAuthorisationThreshold: Number(e.target.value) })}
             />
           </Field>
+          <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-4 sm:col-span-2">
+            <p className="text-sm font-semibold text-slate-800">Mobile-money repayments</p>
+            <p className="mb-3 text-xs text-slate-500">Borrowers send repayments here. It appears in SMS reminders, statements and the group portal.</p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="Company mobile-money number">
+                <input className={inputClass} value={form.mobileMoneyNumber} onChange={(e) => setForm({ ...form, mobileMoneyNumber: e.target.value })} placeholder="0618750312" />
+              </Field>
+              <Field label="Network" hint="e.g. M-Pesa, Halopesa, Airtel Money">
+                <input className={inputClass} value={form.mobileMoneyNetwork} onChange={(e) => setForm({ ...form, mobileMoneyNetwork: e.target.value })} />
+              </Field>
+              <Field label="Account name" hint="Name the borrower sees when paying">
+                <input className={inputClass} value={form.mobileMoneyAccountName} onChange={(e) => setForm({ ...form, mobileMoneyAccountName: e.target.value })} placeholder={form.name} />
+              </Field>
+            </div>
+          </div>
           <div className="sm:col-span-2">
             <Field label="Collection stages" hint="In order, one per line. Cases move through these from first due date to resolution.">
               <textarea
