@@ -11,7 +11,8 @@ from tests.conftest import Actor, borrower_payload, make_staff, product_payload,
 
 @pytest.fixture
 def t(admin: Actor, branch: dict, client):
-    product = admin.post("/products", product_payload()).json()
+    # no security requirement, so these tests are about the workflow alone
+    product = admin.post("/products", product_payload(securityRequired=["none"])).json()
     officer = make_staff(admin, client, role="loan_officer", branch_id=branch["id"])
     officer2 = make_staff(admin, client, role="loan_officer", branch_id=branch["id"], email="officer2@test.co")
     manager = make_staff(admin, client, role="branch_manager", branch_id=branch["id"])

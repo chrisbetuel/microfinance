@@ -8,6 +8,24 @@ import { generateSchedule } from '../../lib/loanMath'
 import type { Application, ApplicationStatus, AssessmentResult, BorrowerGroup, DisbursementChannel, Loan, LoanProduct } from '../../types'
 import { groupSummary } from '../groups/groupStats'
 
+export function EligibilityList({ checks, empty }: { checks: { rule: string; ok: boolean; detail: string; stage?: string }[]; empty?: string }) {
+  if (!checks.length) return <p className="text-sm text-slate-400">{empty ?? 'No product rules to check.'}</p>
+  return (
+    <ul className="grid gap-1.5 sm:grid-cols-2">
+      {checks.map((c) => (
+        <li key={c.rule} className={clsx('flex items-start gap-2 rounded-lg px-3 py-2 text-sm', c.ok ? 'bg-emerald-50 text-emerald-900' : 'bg-red-50 text-red-900')}>
+          {c.ok ? <Check size={15} className="mt-0.5 shrink-0" /> : <X size={15} className="mt-0.5 shrink-0" />}
+          <span>
+            <b className="font-medium">{c.rule}</b>
+            {c.stage === 'security' && <span className="ml-1 text-[11px] opacity-70">(before recommending)</span>}
+            <span className="block text-xs opacity-80">{c.detail}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export const APP_STATUS_LABEL: Record<ApplicationStatus, string> = {
   draft: 'Draft',
   submitted: 'Submitted',

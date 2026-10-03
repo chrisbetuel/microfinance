@@ -126,6 +126,9 @@ def generate_schedule(
 
 
 def calculate_penalty(product, overdue_amount: float, days_late: int) -> float:
+    if not getattr(product, "penalty_enabled", True):
+        return 0.0
+    days_late -= int(getattr(product, "penalty_grace_days", 0) or 0)
     if days_late <= 0:
         return 0.0
     if product.penalty_kind == "fixed":

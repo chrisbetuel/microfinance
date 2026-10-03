@@ -292,13 +292,13 @@ class BorrowerDocumentUploadSerializer(serializers.Serializer):
 class ProductFeeSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.ProductFee
-        fields = ["id", "name", "kind", "value", "timing"]
+        fields = ["id", "name", "kind", "value", "timing", "fee_type"]
 
 
 class ApprovalLevelSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.ApprovalLevel
-        fields = ["id", "min_amount", "max_amount", "required_role"]
+        fields = ["id", "min_amount", "max_amount", "required_role", "required_roles"]
 
 
 class LoanProductSerializer(serializers.ModelSerializer):
@@ -314,6 +314,12 @@ class LoanProductSerializer(serializers.ModelSerializer):
             "min_term_instalments", "max_term_instalments", "step_up_enabled", "grace_period_days",
             "grace_period_applies_to", "penalty_kind", "penalty_value", "penalty_cap",
             "compulsory_savings_percent", "allocation_order", "security_required", "fees", "approval_levels",
+            "description", "category", "status", "default_amount", "default_term", "penalty_enabled",
+            "penalty_grace_days", "min_age", "min_membership_days", "min_savings", "min_monthly_income",
+            "required_documents", "min_guarantors", "min_collateral_percent", "loan_type", "min_group_members",
+            "disbursement_methods", "max_disbursement_amount", "first_repayment_rule", "first_repayment_day",
+            "early_repayment_allowed", "max_active_loans", "max_total_outstanding", "max_increase_percent",
+            "max_group_exposure", "max_open_applications",
         ]
 
 
@@ -323,13 +329,24 @@ class ProductFeeWriteSerializer(serializers.Serializer):
     kind = serializers.CharField()
     value = serializers.FloatField()
     timing = serializers.ChoiceField(choices=enums.FeeTiming.choices)
+    fee_type = serializers.ChoiceField(choices=["application", "processing", "disbursement", "insurance", "service", "other"],
+                                       required=False, default="other")
 
 
 class ApprovalLevelWriteSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, allow_null=True)
     min_amount = serializers.FloatField()
     max_amount = serializers.FloatField(required=False, allow_null=True)
-    required_role = serializers.ChoiceField(choices=enums.StaffRole.choices)
+    required_role = serializers.ChoiceField(choices=enums.StaffRole.choices, required=False)
+    required_roles = serializers.ListField(child=serializers.ChoiceField(choices=enums.StaffRole.choices), required=False)
+
+    def validate(self, data):
+        roles = data.get("required_roles") or ([data["required_role"]] if data.get("required_role") else [])
+        if not roles:
+            raise serializers.ValidationError("Each approval level needs at least one approver role")
+        data["required_roles"] = roles
+        data["required_role"] = roles[-1]  # the most senior sign-off
+        return data
 
 
 class LoanProductWriteSerializer(serializers.Serializer):
@@ -355,6 +372,50 @@ class LoanProductWriteSerializer(serializers.Serializer):
     compulsory_savings_percent = serializers.FloatField(required=False, default=0)
     allocation_order = serializers.ListField(child=serializers.CharField())
     security_required = serializers.ListField(child=serializers.CharField())
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    category = serializers.ChoiceField(choices=["business", "emergency", "agriculture", "education", "salary", "group", "other"],
+                                       required=False, default="business")
+    status = serializers.ChoiceField(choices=["active", "inactive", "archived"], required=False)
+    default_amount = serializers.FloatField(required=False, allow_null=True, default=None)
+    default_term = serializers.IntegerField(required=False, allow_null=True, default=None)
+    penalty_enabled = serializers.BooleanField(required=False, default=True)
+    penalty_grace_days = serializers.IntegerField(required=False, min_value=0, default=0)
+    min_age = serializers.IntegerField(required=False, allow_null=True, min_value=0, default=None)
+    min_membership_days = serializers.IntegerField(required=False, allow_null=True, min_value=0, default=None)
+    min_savings = serializers.FloatField(required=False, allow_null=True, min_value=0, default=None)
+    min_monthly_income = serializers.FloatField(required=False, allow_null=True, min_value=0, default=None)
+    required_documents = serializers.ListField(child=serializers.CharField(max_length=60), required=False, default=list)
+    min_guarantors = serializers.IntegerField(required=False, min_value=0, default=0)
+    min_collateral_percent = serializers.FloatField(required=False, min_value=0, default=0)
+    loan_type = serializers.ChoiceField(choices=["individual", "group"], required=False, default="individual")
+    min_group_members = serializers.IntegerField(required=False, min_value=0, default=0)
+    disbursement_methods = serializers.ListField(child=serializers.ChoiceField(choices=enums.DisbursementChannel.choices),
+                                                 required=False, default=list)
+    max_disbursement_amount = serializers.FloatField(required=False, allow_null=True, min_value=0, default=None)
+    first_repayment_rule = serializers.ChoiceField(choices=["one_period", "day_of_month"], required=False, default="one_period")
+    first_repayment_day = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=28, default=None)
+    early_repayment_allowed = serializers.BooleanField(required=False, default=True)
+    max_active_loans = serializers.IntegerField(required=False, allow_null=True, min_value=1, default=None)
+    max_total_outstanding = serializers.FloatField(required=False, allow_null=True, min_value=0, default=None)
+    max_increase_percent = serializers.FloatField(required=False, allow_null=True, min_value=0, default=None)
+    max_group_exposure = serializers.FloatField(required=False, allow_null=True, min_value=0, default=None)
+    max_open_applications = serializers.IntegerField(required=False, allow_null=True, min_value=1, default=None)
+
+    def validate(self, data):
+        if data["min_amount"] > data["max_amount"]:
+            raise serializers.ValidationError("Minimum amount is above the maximum")
+        if data["min_term_instalments"] > data["max_term_instalments"]:
+            raise serializers.ValidationError("Minimum term is above the maximum")
+        if data.get("default_amount") is not None and not data["min_amount"] <= data["default_amount"] <= data["max_amount"]:
+            raise serializers.ValidationError("Default amount must be within the amount range")
+        if data.get("default_term") is not None and not data["min_term_instalments"] <= data["default_term"] <= data["max_term_instalments"]:
+            raise serializers.ValidationError("Default term must be within the term range")
+        if data.get("first_repayment_rule") == "day_of_month" and not data.get("first_repayment_day"):
+            raise serializers.ValidationError("Choose the day of the month for the first repayment")
+        status = data.get("status") or ("active" if data.get("active", True) else "inactive")
+        data["status"] = status
+        data["active"] = status == "active"
+        return data
     fees = ProductFeeWriteSerializer(many=True, required=False, default=list)
     approval_levels = ApprovalLevelWriteSerializer(many=True, required=False, default=list)
 
@@ -428,6 +489,7 @@ class ApplicationSerializer(serializers.ModelSerializer):
             "affordability_pass", "duplicate_check_pass", "blacklist_check_pass",
             "credit_bureau_consent", "score", "score_recommendation", "required_approver_role",
             "created_by", "created_at", "decline_reason", "approvals", "risk", "needs_review",
+            "required_approvals", "eligibility",
             "requested_amount", "requested_term", "loan_officer_id", "application_date", "disbursement_method",
             "first_repayment_date", "group_member_ids", "guarantor_ids", "collateral_ids",
             "other_income", "business_income", "business_expenses", "existing_loans_count", "existing_repayments",

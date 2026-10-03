@@ -174,6 +174,11 @@ def _apply_details(d, data):
         setattr(d, k, v)
     if parts["net_amount"] <= 0:
         raise DisbursementError("Deductions leave nothing to disburse", 422)
+    product = d.application.product
+    if product.disbursement_methods and d.method not in product.disbursement_methods:
+        raise DisbursementError(f"{d.get_method_display()} is not an allowed disbursement method for {product.name}", 422)
+    if product.max_disbursement_amount and parts["net_amount"] > float(product.max_disbursement_amount):
+        raise DisbursementError(f"Net amount exceeds the product's maximum disbursement of {float(product.max_disbursement_amount):,.0f}", 422)
     d.warnings = destination_warnings(
         d.application, method=d.method, recipient_type=d.recipient_type, name=d.recipient_name,
         provider=d.recipient_provider, account=d.recipient_account,

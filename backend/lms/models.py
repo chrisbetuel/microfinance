@@ -236,6 +236,39 @@ class LoanProduct(models.Model):
     # savings account (held as partial security, released on loan closure).
     compulsory_savings_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
 
+    # basic information
+    description = models.TextField(blank=True, default="")
+    category = models.CharField(max_length=20, default="business")  # business | emergency | agriculture | education | salary | group | other
+    status = models.CharField(max_length=10, default="active")  # active | inactive | archived (`active` mirrors it)
+    default_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    default_term = models.IntegerField(null=True, blank=True)
+    # penalties
+    penalty_enabled = models.BooleanField(default=True)
+    penalty_grace_days = models.IntegerField(default=0)  # days late before a penalty starts
+    # eligibility
+    min_age = models.IntegerField(null=True, blank=True)
+    min_membership_days = models.IntegerField(null=True, blank=True)
+    min_savings = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    min_monthly_income = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    required_documents = models.JSONField(default=list, blank=True)
+    # security
+    min_guarantors = models.IntegerField(default=0)
+    min_collateral_percent = models.DecimalField(max_digits=6, decimal_places=2, default=0)  # of the loan amount
+    loan_type = models.CharField(max_length=12, default="individual")  # individual | group
+    min_group_members = models.IntegerField(default=0)
+    # disbursement & repayment rules
+    disbursement_methods = models.JSONField(default=list, blank=True)  # empty = every method
+    max_disbursement_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    first_repayment_rule = models.CharField(max_length=16, default="one_period")  # one_period | day_of_month
+    first_repayment_day = models.IntegerField(null=True, blank=True)
+    early_repayment_allowed = models.BooleanField(default=True)
+    # limits
+    max_active_loans = models.IntegerField(null=True, blank=True)
+    max_total_outstanding = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    max_increase_percent = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    max_group_exposure = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    max_open_applications = models.IntegerField(null=True, blank=True)
+
     allocation_order = models.JSONField(default=list)
     security_required = models.JSONField(default=list)
 
@@ -250,6 +283,7 @@ class ProductFee(models.Model):
     kind = models.CharField(max_length=10)  # 'fixed' | 'percent'
     value = models.DecimalField(max_digits=10, decimal_places=2)
     timing = models.CharField(max_length=20, choices=enums.FeeTiming.choices)
+    fee_type = models.CharField(max_length=20, default="other")  # application | processing | disbursement | insurance | service | other
 
 
 class ApprovalLevel(models.Model):
@@ -258,6 +292,8 @@ class ApprovalLevel(models.Model):
     min_amount = models.DecimalField(max_digits=14, decimal_places=2)
     max_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     required_role = models.CharField(max_length=30, choices=enums.StaffRole.choices)
+    # every role that must approve, in order (e.g. loan officer then manager); empty = [required_role]
+    required_roles = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["min_amount"]
@@ -323,6 +359,8 @@ class Application(models.Model):
     needs_review = models.BooleanField(default=False)
 
     required_approver_role = models.CharField(max_length=30, choices=enums.StaffRole.choices)
+    required_approvals = models.JSONField(default=list, blank=True)  # roles that must each approve
+    eligibility = models.JSONField(default=list, blank=True)  # product rule checks at last save
     created_by = models.ForeignKey(Staff, on_delete=models.PROTECT, related_name="+")
     decline_reason = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)

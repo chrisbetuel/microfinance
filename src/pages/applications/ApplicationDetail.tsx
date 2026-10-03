@@ -21,6 +21,7 @@ import {
   ASSESSMENT_TONE,
   BorrowingSummary,
   CapacityPanel,
+  EligibilityList,
   DISBURSEMENT_LABEL,
   GroupSnapshot,
   StagePipeline,
@@ -172,6 +173,11 @@ export default function ApplicationDetail() {
           </Card>
 
           <RiskCard application={application} money={money} />
+
+          <Card>
+            <CardHeader title="Product rules" subtitle={`${product.name}: eligibility, limits and security requirements`} />
+            <EligibilityList checks={application.eligibility ?? []} empty="Checked when the application is saved." />
+          </Card>
 
           <Card>
             <CardHeader title="4. Previous borrowing" subtitle="From the system's records" />
@@ -488,13 +494,28 @@ function ApprovalCard({ application, money }: { application: Application; money:
   const currentStaff = staff.find((s) => s.id === currentStaffId)
   const isCreator = application.createdBy === currentStaffId
   const isAssessor = application.assessedById === currentStaffId
-  const roleMatches = currentStaff?.role === application.requiredApproverRole || currentStaff?.role === 'lender_admin'
+  // approvals given since the application was last returned, matched against the roles the tier requires
+  const required = application.requiredApprovals?.length ? application.requiredApprovals : [application.requiredApproverRole]
+  const lastReturn = application.approvals.map((a) => a.decision).lastIndexOf('returned')
+  const given = application.approvals.slice(lastReturn + 1).filter((a) => a.decision === 'approved')
+  const remaining = [...required]
+  for (const g of given) {
+    const i = remaining.findIndex((r) => r === g.role || g.role === 'lender_admin')
+    if (i >= 0) remaining.splice(i, 1)
+  }
+  const alreadyApproved = given.some((g) => g.approverId === currentStaffId)
+  const roleMatches = !alreadyApproved && remaining.some((r) => r === currentStaff?.role || currentStaff?.role === 'lender_admin')
   const pending = application.status === 'pending_approval'
   const canDecide = pending && roleMatches && !isCreator && !isAssessor
 
   return (
     <Card>
-      <CardHeader title="Approval" subtitle={`Requires: ${STAFF_ROLE_LABELS[application.requiredApproverRole]}`} />
+      <CardHeader title="Approval" subtitle={`Requires: ${required.map((r) => STAFF_ROLE_LABELS[r]).join(' + ')}`} />
+      {required.length > 1 && pending && (
+        <p className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          {given.length} of {required.length} approvals given. Still needed: {remaining.map((r) => STAFF_ROLE_LABELS[r]).join(', ')}.
+        </p>
+      )}
       {application.approvals.length === 0 && <p className="text-sm text-slate-400">No decisions recorded yet.</p>}
       <ul className="space-y-3">
         {application.approvals.map((a) => (
@@ -521,7 +542,7 @@ function ApprovalCard({ application, money }: { application: Application; money:
             <p className="mt-2 text-xs text-amber-700">You {isCreator ? 'captured' : 'assessed'} this application, so a different approver must decide it.</p>
           )}
           {!isCreator && !isAssessor && !roleMatches && (
-            <p className="mt-2 text-xs text-slate-400">Only a {STAFF_ROLE_LABELS[application.requiredApproverRole]} can decide this amount.</p>
+            <p className="mt-2 text-xs text-slate-400">{alreadyApproved ? 'You have already approved — another approver must sign.' : `Needs: ${remaining.map((r) => STAFF_ROLE_LABELS[r]).join(', ')}.`}</p>
           )}
         </>
       )}

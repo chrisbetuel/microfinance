@@ -53,24 +53,30 @@ from lms.services.audit import record as audit_record
 DEMO_LENDER = "Sele Microfinance"
 
 PRODUCTS = [
-    dict(name="Biashara Working Capital", code="BWC", interest_method="reducing", interest_rate=4,
+    dict(name="Biashara Working Capital", code="BL-001", category="business", interest_method="reducing", interest_rate=4,
+         description="Business capital for traders and small enterprises.", default_amount=1_000_000, default_term=6,
+         min_age=18, min_guarantors=1, max_active_loans=1, max_increase_percent=50, max_open_applications=1,
+         required_documents=["Identification", "Income evidence"], penalty_grace_days=3,
          interest_period="monthly", repayment_frequency="monthly", min_amount=200_000, max_amount=5_000_000,
          min_term_instalments=3, max_term_instalments=12, penalty_kind="percent", penalty_value=1,
          penalty_cap=50_000, compulsory_savings_percent=5,
          allocation_order=["penalty", "fee", "interest", "principal"],
          security_required=["guarantors"],
-         fees=[dict(name="Processing fee", kind="percent", value=2, timing="deducted"),
-               dict(name="Insurance", kind="fixed", value=15_000, timing="added")],
+         fees=[dict(name="Processing fee", kind="percent", value=2, timing="deducted", fee_type="processing"),
+               dict(name="Insurance", kind="fixed", value=15_000, timing="added", fee_type="insurance")],
          levels=[dict(min_amount=0, max_amount=1_000_000, required_role="branch_manager"),
                  dict(min_amount=1_000_000, max_amount=None, required_role="credit_committee")]),
-    dict(name="Micro Daily Trader", code="MDT", interest_method="flat", interest_rate=0.4,
+    dict(name="Micro Daily Trader", code="MD-001", category="business", interest_method="flat", interest_rate=0.4,
+         description="Small daily-repayment loans for market traders.", min_age=18, max_active_loans=1,
          interest_period="daily", repayment_frequency="daily", min_amount=50_000, max_amount=500_000,
          min_term_instalments=20, max_term_instalments=60, penalty_kind="fixed", penalty_value=500,
          penalty_cap=10_000, allocation_order=["penalty", "fee", "interest", "principal"],
          security_required=["none"],
          fees=[dict(name="Application fee", kind="fixed", value=3_000, timing="deducted")],
          levels=[dict(min_amount=0, max_amount=None, required_role="branch_manager")]),
-    dict(name="Asset Finance - Equipment", code="AFE", interest_method="reducing", interest_rate=3.5,
+    dict(name="Asset Finance - Equipment", code="AF-001", category="business", interest_method="reducing", interest_rate=3.5,
+         description="Finance to buy business equipment, secured on the asset.", min_collateral_percent=100,
+         min_guarantors=1, disbursement_methods=["supplier", "bank_transfer"],
          interest_period="monthly", repayment_frequency="monthly", min_amount=1_000_000, max_amount=20_000_000,
          min_term_instalments=6, max_term_instalments=24, grace_period_days=30, grace_period_applies_to="principal",
          penalty_kind="percent", penalty_value=1.5, penalty_cap=100_000,
@@ -78,6 +84,46 @@ PRODUCTS = [
          fees=[dict(name="Processing fee", kind="percent", value=1.5, timing="deducted")],
          levels=[dict(min_amount=0, max_amount=5_000_000, required_role="branch_manager"),
                  dict(min_amount=5_000_000, max_amount=None, required_role="credit_committee")]),
+    dict(name="Emergency Loan", code="EM-001", category="emergency", interest_method="flat", interest_rate=5,
+         description="Quick help for urgent personal needs such as medical or school costs.",
+         interest_period="monthly", repayment_frequency="monthly", min_amount=50_000, max_amount=1_000_000,
+         default_amount=200_000, min_term_instalments=1, max_term_instalments=6, default_term=3,
+         penalty_kind="percent", penalty_value=1, penalty_cap=30_000, penalty_grace_days=3,
+         allocation_order=["penalty", "fee", "interest", "principal"], security_required=["none"],
+         min_age=18, min_membership_days=90, max_active_loans=1, max_open_applications=1,
+         disbursement_methods=["mobile_money", "cash"],
+         fees=[dict(name="Application fee", kind="fixed", value=5_000, timing="deducted", fee_type="application")],
+         levels=[dict(min_amount=0, max_amount=None, required_role="branch_manager")]),
+    dict(name="Kilimo Agriculture Loan", code="AG-001", category="agriculture", interest_method="reducing",
+         description="Seasonal finance for farming inputs, repaid after harvest.", interest_rate=2.5,
+         interest_period="monthly", repayment_frequency="monthly", min_amount=500_000, max_amount=10_000_000,
+         min_term_instalments=6, max_term_instalments=18, grace_period_days=90, grace_period_applies_to="principal",
+         penalty_kind="percent", penalty_value=1, penalty_cap=100_000, penalty_grace_days=7,
+         allocation_order=["penalty", "fee", "interest", "principal"], security_required=["guarantors"],
+         min_guarantors=2, min_age=18, max_active_loans=1,
+         fees=[dict(name="Processing fee", kind="percent", value=1.5, timing="deducted", fee_type="processing"),
+               dict(name="Crop insurance", kind="percent", value=2, timing="deducted", fee_type="insurance")],
+         levels=[dict(min_amount=0, max_amount=2_000_000, required_role="branch_manager",
+                      required_roles=["loan_officer", "branch_manager"]),
+                 dict(min_amount=2_000_000, max_amount=None, required_role="credit_committee",
+                      required_roles=["branch_manager", "credit_committee"])]),
+    dict(name="Salary Advance", code="SL-001", category="salary", interest_method="flat", interest_rate=3,
+         description="Salary-based borrowing for employed customers, repaid from pay.",
+         interest_period="monthly", repayment_frequency="monthly", min_amount=100_000, max_amount=5_000_000,
+         min_term_instalments=1, max_term_instalments=12, penalty_kind="percent", penalty_value=1, penalty_cap=50_000,
+         allocation_order=["penalty", "fee", "interest", "principal"], security_required=["none"],
+         min_age=21, min_monthly_income=300_000, required_documents=["Identification", "Income evidence"],
+         first_repayment_rule="day_of_month", first_repayment_day=25, disbursement_methods=["bank_transfer", "mobile_money"],
+         fees=[dict(name="Processing fee", kind="percent", value=1, timing="deducted", fee_type="processing")],
+         levels=[dict(min_amount=0, max_amount=None, required_role="branch_manager")]),
+    dict(name="Group Solidarity Loan", code="GL-001", category="group", loan_type="group", min_group_members=3,
+         description="Loans to members of a solidarity group, backed by joint liability.", interest_method="flat",
+         interest_rate=3, interest_period="monthly", repayment_frequency="weekly", min_amount=500_000,
+         max_amount=20_000_000, min_term_instalments=12, max_term_instalments=72, penalty_kind="fixed",
+         penalty_value=1_000, penalty_cap=20_000, allocation_order=["penalty", "fee", "interest", "principal"],
+         security_required=["group_guarantee"], max_group_exposure=20_000_000, required_documents=["Identification", "Group agreement"],
+         fees=[dict(name="Processing fee", kind="percent", value=1, timing="deducted", fee_type="processing")],
+         levels=[dict(min_amount=0, max_amount=None, required_role="branch_manager")]),
 ]
 
 FIRST = ["Halima", "John", "Zainab", "Daudi", "Amina", "Joseph", "Neema", "Rehema", "Peter", "Grace",
@@ -262,10 +308,15 @@ class Command(BaseCommand):
 
         def release_through_workflow(app, borrower, upto, when):
             """Prepare → verify → authorise → release → confirm, by different people, stopping at `upto`."""
-            prep = disbursement_service.prepare(cashier, app, {
-                "method": "mobile_money", "recipient_type": "borrower", "recipient_name": borrower.full_name,
-                "recipient_provider": "mpesa", "recipient_account": borrower.phone,
-            })
+            allowed = app.product.disbursement_methods or []
+            if not allowed or "mobile_money" in allowed:
+                details = {"method": "mobile_money", "recipient_type": "borrower", "recipient_name": borrower.full_name,
+                           "recipient_provider": "mpesa", "recipient_account": borrower.phone}
+            else:  # e.g. asset finance paid straight to the equipment supplier
+                details = {"method": allowed[0], "recipient_type": "third_party", "recipient_name": "Mwanza Machinery Ltd",
+                           "recipient_provider": "CRDB", "recipient_account": "0150448812001",
+                           "authorisation_note": "Borrower's signed instruction to pay the supplier"}
+            prep = disbursement_service.prepare(cashier, app, details)
             steps = ["pending", "under_verification", "approved", "successful"]
             if steps.index(upto) >= 1:
                 disbursement_service.submit(cashier, prep)
@@ -277,14 +328,18 @@ class Command(BaseCommand):
                 disbursement_service.release(cashier, prep)
                 prep.refresh_from_db()
                 tx = prep.payment
-                tx.status = PaymentTransaction.Status.SUCCESS
-                tx.receipt = f"MP{when:%y%m%d}{ref_n:04d}"
-                tx.completed_at = when
-                tx.save(update_fields=["status", "receipt", "completed_at"])
-                disbursement_service.complete(prep, reference=tx.receipt, by=cashier, disbursed_on=when)
-                tx.loan = prep.loan
-                tx.created_at = when
-                tx.save(update_fields=["loan", "created_at"])
+                if tx is None:  # bank / supplier transfer confirmed by its bank reference
+                    disbursement_service.complete(prep, reference=f"CRDB{when:%y%m%d}{ref_n:04d}", by=cashier,
+                                                  disbursed_on=when)
+                else:
+                    tx.status = PaymentTransaction.Status.SUCCESS
+                    tx.receipt = f"MP{when:%y%m%d}{ref_n:04d}"
+                    tx.completed_at = when
+                    tx.save(update_fields=["status", "receipt", "completed_at"])
+                    disbursement_service.complete(prep, reference=tx.receipt, by=cashier, disbursed_on=when)
+                    tx.loan = prep.loan
+                    tx.created_at = when
+                    tx.save(update_fields=["loan", "created_at"])
                 ApplicationEvent.objects.filter(application=app, stage="disbursed").update(at=when)
             Disbursement.objects.filter(pk=prep.pk).update(
                 prepared_at=when - timedelta(hours=5), created_at=when - timedelta(hours=5),

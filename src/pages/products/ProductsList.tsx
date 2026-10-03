@@ -40,6 +40,7 @@ export default function ProductsList() {
         columns={[
           { header: 'Product', cell: (p) => <span className="font-medium text-slate-800">{p.name}</span> },
           { header: 'Code', cell: (p) => p.code },
+          { header: 'Category', cell: (p) => <span className="capitalize">{p.category}{p.loanType === 'group' ? ' · group' : ''}</span> },
           { header: 'Interest', cell: (p) => `${p.interestRate}% ${p.interestMethod} / ${p.interestPeriod}` },
           { header: 'Repayment', cell: (p) => <span className="capitalize">{p.repaymentFrequency}</span> },
           { header: 'Amount range', cell: (p) => `${formatMoney(p.minAmount)} – ${formatMoney(p.maxAmount)}` },
@@ -54,10 +55,10 @@ export default function ProductsList() {
                     void toggleProductActive(p.id)
                   }}
                 >
-                  <Badge tone={p.active ? 'green' : 'slate'}>{p.active ? 'Active' : 'Inactive'}</Badge>
+                  <Badge tone={p.status === 'active' ? 'green' : p.status === 'archived' ? 'red' : 'slate'}>{p.status === 'archived' ? 'Archived' : p.active ? 'Active' : 'Inactive'}</Badge>
                 </button>
               ) : (
-                <Badge tone={p.active ? 'green' : 'slate'}>{p.active ? 'Active' : 'Inactive'}</Badge>
+                <Badge tone={p.status === 'active' ? 'green' : p.status === 'archived' ? 'red' : 'slate'}>{p.status === 'archived' ? 'Archived' : p.active ? 'Active' : 'Inactive'}</Badge>
               ),
           },
         ]}

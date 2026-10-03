@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import clsx from 'clsx'
@@ -11,10 +11,11 @@ import { Badge } from '../../components/ui/Badge'
 import { Field, inputClass } from '../../components/ui/Field'
 import { formatDate, formatMoney } from '../../lib/format'
 import { useCanEdit } from '../../lib/useCanEdit'
-import type { ApplicationInput, Borrower, DisbursementChannel, GuarantorInput, LoanProduct } from '../../types'
+import type { ApplicationInput, Borrower, DisbursementChannel, EligibilityCheck, GuarantorInput, LoanProduct } from '../../types'
 import {
   BorrowingSummary,
   CapacityPanel,
+  EligibilityList,
   DISBURSEMENT_LABEL,
   GroupSnapshot,
   capacityOf,
@@ -51,7 +52,18 @@ function addPeriod(date: Date, frequency: LoanProduct['repaymentFrequency']): Da
   else d.setMonth(d.getMonth() + 1)
   return d
 }
-const iso = (d: Date) => d.toISOString().slice(0, 10)
+const iso = (d: Date) => d.toLocaleDateString('en-CA') // local YYYY-MM-DD
+
+/** The product's default first repayment date (mirrors services/products.first_repayment_date). */
+function defaultFirstRepayment(p: LoanProduct): string {
+  if (p.firstRepaymentRule === 'day_of_month' && p.firstRepaymentDay) {
+    const earliest = new Date(Date.now() + 14 * 864e5)
+    const d = new Date(earliest.getFullYear(), earliest.getMonth(), Math.min(p.firstRepaymentDay, 28))
+    if (d < earliest) d.setMonth(d.getMonth() + 1)
+    return iso(d)
+  }
+  return iso(addPeriod(new Date(), p.repaymentFrequency))
+}
 
 function fromBorrower(b: Borrower | undefined) {
   return {
@@ -106,12 +118,25 @@ export default function ApplicationForm() {
       borrowerId: b?.id ?? '', productId: p?.id ?? '', groupId: null, amount: p?.minAmount ?? 0,
       termInstalments: p?.minTermInstalments ?? 1, purpose: '', creditBureauConsent: false,
       loanOfficerId: b?.officerId ?? currentStaffId, disbursementMethod: 'mobile_money',
-      firstRepaymentDate: p ? iso(addPeriod(new Date(), p.repaymentFrequency)) : null,
+      firstRepaymentDate: p ? defaultFirstRepayment(p) : null,
       groupMemberIds: [], guarantorIds: [], collateralIds: [], otherIncome: 0, businessIncome: 0, businessExpenses: 0,
       existingLoansCount: 0, ...fromBorrower(b),
     }
   })
   const [docs, setDocs] = useState<{ type: string; name: string }[]>([])
+  const [eligibility, setEligibility] = useState<EligibilityCheck[]>([])
+  const loadEligibility = useStore((s) => s.loadEligibility)
+  useEffect(() => {
+    if (!form.productId || !form.borrowerId) return
+    const t = setTimeout(() => {
+      loadEligibility({
+        productId: form.productId, borrowerId: form.borrowerId, amount: form.amount, term: form.termInstalments,
+        groupId: kind === 'group' ? form.groupId : null,
+        income: form.declaredIncome + form.otherIncome + form.businessIncome - form.businessExpenses,
+      }).then(setEligibility).catch(() => setEligibility([]))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [form.productId, form.borrowerId, form.amount, form.termInstalments, form.groupId, form.declaredIncome, form.otherIncome, form.businessIncome, form.businessExpenses, kind, loadEligibility])
   const [step, setStep] = useState<StepId>('applicant')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -156,6 +181,7 @@ export default function ApplicationForm() {
     product && !withinTerm && `Repayment period must be ${product.minTermInstalments}–${product.maxTermInstalments} instalments`,
     !form.purpose.trim() && 'Give the purpose of the loan',
     form.declaredIncome <= 0 && 'Enter the monthly income',
+    ...eligibility.filter((c) => !c.ok && !['Amount', 'Repayment period'].includes(c.rule)).map((c) => `${c.rule}: ${c.detail}`),
   ].filter(Boolean) as string[]
   const warnings = [
     security.includes('guarantors') && form.guarantorIds.length === 0 && 'This product requires a guarantor',
@@ -346,9 +372,9 @@ export default function ApplicationForm() {
                       setForm((f) => ({
                         ...f,
                         productId: e.target.value,
-                        amount: p ? Math.min(Math.max(f.amount, p.minAmount), p.maxAmount) : f.amount,
-                        termInstalments: p ? Math.min(Math.max(f.termInstalments, p.minTermInstalments), p.maxTermInstalments) : f.termInstalments,
-                        firstRepaymentDate: p ? iso(addPeriod(new Date(), p.repaymentFrequency)) : f.firstRepaymentDate,
+                        amount: p ? p.defaultAmount ?? Math.min(Math.max(f.amount, p.minAmount), p.maxAmount) : f.amount,
+                        termInstalments: p ? p.defaultTerm ?? Math.min(Math.max(f.termInstalments, p.minTermInstalments), p.maxTermInstalments) : f.termInstalments,
+                        firstRepaymentDate: p ? defaultFirstRepayment(p) : f.firstRepaymentDate,
                       }))
                     }}
                   >
@@ -385,6 +411,11 @@ export default function ApplicationForm() {
                 <Field label="Purpose of the loan">
                   <textarea rows={3} className={inputClass} value={form.purpose} onChange={(e) => set('purpose', e.target.value)} placeholder="e.g. Buy stock of maize flour for the shop" />
                 </Field>
+              </div>
+              {product?.description && <p className="mt-4 text-sm text-slate-500">{product.description}</p>}
+              <div className="mt-4">
+                <p className="mb-2 text-sm font-medium text-slate-700">Product eligibility</p>
+                <EligibilityList checks={eligibility} empty="Checking the product's rules…" />
               </div>
               {product && instalment > 0 && (
                 <p className="mt-4 rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-800">

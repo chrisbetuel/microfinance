@@ -8,7 +8,7 @@ def test_seed_demo_builds_an_explorable_workspace(capsys):
     lender = Lender.objects.get(name="Sele Microfinance")
 
     assert lender.staff.count() >= 8
-    assert lender.products.count() == 3
+    assert lender.products.count() == 7  # incl. emergency, agriculture, salary and group examples
     assert lender.borrowers.count() >= 10
     assert lender.applications.count() >= 5
 

@@ -66,6 +66,7 @@ from lms.services import (
     disbursements as disbursement_service,
     collection_cases as case_service,
     ledger as ledger_service,
+    products as product_service,
     repayments as repayment_service,
     gateway as gateway_service,
     loans as loan_service,
@@ -599,16 +600,37 @@ def apply_product_write(product, data):
     product.fees.all().delete()
     product.approval_levels.all().delete()
     ProductFee.objects.bulk_create(
-        ProductFee(product=product, name=f["name"], kind=f["kind"], value=f["value"], timing=f["timing"])
+        ProductFee(product=product, name=f["name"], kind=f["kind"], value=f["value"], timing=f["timing"],
+                   fee_type=f.get("fee_type", "other"))
         for f in data.get("fees", [])
     )
     ApprovalLevel.objects.bulk_create(
         ApprovalLevel(
-            product=product, min_amount=a["min_amount"],
-            max_amount=a.get("max_amount"), required_role=a["required_role"],
+            product=product, min_amount=a["min_amount"], max_amount=a.get("max_amount"),
+            required_role=a["required_role"], required_roles=a["required_roles"],
         )
         for a in data.get("approval_levels", [])
     )
+
+
+class ProductEligibilityView(APIView):
+    """GET /products/<id>/eligibility?borrowerId=&amount=&term=&groupId= — rule checks for the wizard."""
+
+    def get(self, request, product_id):
+        lender = request.user.lender
+        product = product_qs(lender).filter(pk=product_id).first()
+        borrower = Borrower.objects.filter(pk=request.query_params.get("borrowerId"), lender=lender).first()
+        if product is None or borrower is None:
+            raise NotFound("Product or borrower not found")
+        group = BorrowerGroup.objects.filter(pk=request.query_params.get("groupId") or None, lender=lender).first() \
+            if request.query_params.get("groupId") else None
+        try:
+            amount = float(request.query_params.get("amount") or product.min_amount)
+            term = int(request.query_params.get("term") or product.min_term_instalments)
+            income = float(request.query_params["income"]) if request.query_params.get("income") else None
+        except ValueError:
+            raise UnprocessableEntity("amount, term and income must be numbers")
+        return Response(product_service.intake_checks(product, borrower, amount=amount, term=term, group=group, income=income))
 
 
 class ProductsView(APIView):
@@ -658,7 +680,8 @@ class ProductDetailView(APIView):
     def patch(self, request, product_id):
         product = self.get_object(request, product_id)
         product.active = validated(ser.ProductActiveSerializer, request.data)["active"]
-        product.save(update_fields=["active"])
+        product.status = "active" if product.active else ("archived" if product.status == "archived" else "inactive")
+        product.save(update_fields=["active", "status"])
         audit.record(request.user, "updated", "product", product.id, "Product active status toggled")
         return Response(ser.LoanProductSerializer(product_qs(request.user.lender).get(pk=product_id)).data)
 
@@ -773,6 +796,11 @@ def _reassess(application):
     application.score = a.score
     application.score_recommendation = a.score_recommendation
     application.required_approver_role = a.required_approver_role
+    application.required_approvals = application_service.required_roles(application.product, float(application.requested_amount or application.amount))
+    application.eligibility = product_service.intake_checks(
+        application.product, application.borrower, amount=float(application.amount), term=application.term_instalments,
+        group=application.group, income=capacity["total_income"], exclude_application=application,
+    ) + product_service.security_checks(application.product, application)
     application.risk = a.risk
     application.needs_review = a.needs_review
     application.save()
@@ -806,11 +834,22 @@ class ApplicationsView(APIView):
             raise UnprocessableEntity("Loan product is not active")
         group = _check_group(lender, borrower, data.get("group_id"))
         _check_terms(product, data["amount"], data["term_instalments"])
+        income_total = application_service.repayment_capacity(
+            monthly_income=data["declared_income"], other_income=data["other_income"],
+            business_income=data["business_income"], business_expenses=data["business_expenses"],
+        )["total_income"]
+        intake = product_service.intake_checks(product, borrower, amount=data["amount"], term=data["term_instalments"],
+                                               group=group, income=income_total)
+        failing = product_service.failures(intake)
+        if failing:
+            raise UnprocessableEntity("Not eligible for this product — " + "; ".join(failing))
 
         officer = request.user
         if data.get("loan_officer_id"):
             officer = ensure_staff_member(lender, data["loan_officer_id"])
         application_date = data.get("application_date") or timezone.localdate()
+        if not data.get("first_repayment_date"):
+            data["first_repayment_date"] = product_service.first_repayment_date(product, application_date)
         if data.get("first_repayment_date") and data["first_repayment_date"] <= application_date:
             raise UnprocessableEntity("The first repayment date must be after the application date")
         existing_repayments = data.get("existing_repayments")
@@ -962,6 +1001,10 @@ class ApplicationAssessmentView(APIView):
         forward = data["forward"]
         if forward and data["result"] == "further_review":
             raise UnprocessableEntity("Resolve the further review before forwarding for approval")
+        if forward and data["result"] == "recommended":
+            missing = product_service.failures(product_service.security_checks(application.product, application))
+            if missing:
+                raise UnprocessableEntity("The product's security requirements aren't met — " + "; ".join(missing))
 
         label = ASSESSMENT_LABELS[data["result"]]
         with transaction.atomic():
@@ -997,10 +1040,24 @@ class ApplicationDecisionView(APIView):
             raise PermissionDenied("You created this application — a different approver must decide it")
         if application.assessed_by_id == request.user.id:
             raise PermissionDenied("You assessed this application — a different approver must decide it")
-        if not can_approve_application(request.user.role, application.required_approver_role):
-            raise PermissionDenied(f"This amount requires a {application.required_approver_role} decision")
-
         decision = data["decision"]
+        # approvals already given in this round (since the application was last returned)
+        rounds = list(application.approvals.all())
+        last_return = max((i for i, d in enumerate(rounds) if d.decision == "returned"), default=-1)
+        given = [d for d in rounds[last_return + 1:] if d.decision == "approved"]
+        required = list(application.required_approvals or [application.required_approver_role])
+        remaining = list(required)
+        for d in given:
+            match = next((r for r in remaining if can_approve_application(d.role, r)), None)
+            if match:
+                remaining.remove(match)
+        if any(d.approver_id == request.user.id for d in given):
+            raise PermissionDenied("You have already approved this application — another approver must sign")
+        satisfies = next((r for r in remaining if can_approve_application(request.user.role, r)), None)
+        if satisfies is None:
+            roles = ", ".join(r.replace("_", " ") for r in remaining) or application.required_approver_role
+            raise PermissionDenied(f"This application needs approval from: {roles}")
+        final_approval = decision == "approved" and len(remaining) == 1
         amount = float(application.amount)
         term = application.term_instalments
         if decision == "approved":
@@ -1021,6 +1078,17 @@ class ApplicationDecisionView(APIView):
             raise UnprocessableEntity("Give a reason when declining or returning an application")
 
         with transaction.atomic():
+            if decision == "approved" and not final_approval:
+                ApprovalDecision.objects.create(
+                    application=application, approver=request.user, approver_name=request.user.name,
+                    role=request.user.role, decision=decision, comment=data["comment"],
+                )
+                done = len(required) - len(remaining) + 1
+                _app_event(application, application.status,
+                           f"Approved by {request.user.name} ({done} of {len(required)})", request.user, data["comment"])
+                audit.record(request.user, "approved", "application", application.id,
+                             f"Partial approval {done}/{len(required)} by {request.user.name}")
+                return _application_response(request.user.lender, application.pk)
             if decision == "approved":
                 application.status = ApplicationStatus.APPROVED
                 application.amount = amount
@@ -1122,6 +1190,8 @@ class LoanSettleView(APIView):
         amount = float(loan.outstanding_balance)
         if amount <= 0:
             raise Conflict("Nothing outstanding to settle")
+        if not loan.product.early_repayment_allowed:
+            raise Conflict("This product does not allow early repayment")
         channel = request.data.get("channel", "cash")
         if channel not in {c for c, _ in RepaymentChannel.choices}:
             channel = "cash"

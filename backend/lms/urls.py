@@ -41,6 +41,7 @@ urlpatterns = [
     path("groups/<uuid:group_id>/documents", v.GroupDocumentsView.as_view()),
 
     path("products", v.ProductsView.as_view()),
+    path("products/<uuid:product_id>/eligibility", v.ProductEligibilityView.as_view()),
     path("products/<uuid:product_id>", v.ProductDetailView.as_view()),
 
     path("applications", v.ApplicationsView.as_view()),

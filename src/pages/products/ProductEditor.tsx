@@ -7,7 +7,7 @@ import { PageHeader } from '../../components/ui/PageHeader'
 import { Card, CardHeader } from '../../components/ui/Card'
 import { Field, inputClass } from '../../components/ui/Field'
 import { Button } from '../../components/ui/Button'
-import { STAFF_ROLE_LABELS, type LoanProduct, type SecurityType, type StaffRole } from '../../types'
+import { STAFF_ROLE_LABELS, type DisbursementChannel, type LoanProduct, type ProductCategory, type SecurityType, type StaffRole } from '../../types'
 import { generateSchedule } from '../../lib/loanMath'
 import { formatDate, formatMoney } from '../../lib/format'
 import { useCanEdit } from '../../lib/useCanEdit'
@@ -36,8 +36,63 @@ const emptyProduct = (): LoanProduct => ({
   compulsorySavingsPercent: 0,
   allocationOrder: ['penalty', 'fee', 'interest', 'principal'],
   securityRequired: ['none'],
-  approvalLevels: [{ id: uuid(), minAmount: 0, maxAmount: null, requiredRole: 'branch_manager' }],
+  approvalLevels: [{ id: uuid(), minAmount: 0, maxAmount: null, requiredRole: 'branch_manager', requiredRoles: ['branch_manager'] }],
+  description: '',
+  category: 'business',
+  status: 'active',
+  defaultAmount: null,
+  defaultTerm: null,
+  penaltyEnabled: true,
+  penaltyGraceDays: 0,
+  minAge: 18,
+  minMembershipDays: null,
+  minSavings: null,
+  minMonthlyIncome: null,
+  requiredDocuments: ['Identification', 'Income evidence'],
+  minGuarantors: 0,
+  minCollateralPercent: 0,
+  loanType: 'individual',
+  minGroupMembers: 0,
+  disbursementMethods: [],
+  maxDisbursementAmount: null,
+  firstRepaymentRule: 'one_period',
+  firstRepaymentDay: null,
+  earlyRepaymentAllowed: true,
+  maxActiveLoans: 1,
+  maxTotalOutstanding: null,
+  maxIncreasePercent: null,
+  maxGroupExposure: null,
+  maxOpenApplications: 1,
 })
+
+const CATEGORIES: { value: ProductCategory; label: string }[] = [
+  { value: 'business', label: 'Business' },
+  { value: 'emergency', label: 'Emergency' },
+  { value: 'agriculture', label: 'Agriculture' },
+  { value: 'education', label: 'Education' },
+  { value: 'salary', label: 'Salary' },
+  { value: 'group', label: 'Group' },
+  { value: 'other', label: 'Other' },
+]
+const FEE_TYPES = ['application', 'processing', 'disbursement', 'insurance', 'service', 'other'] as const
+const DOC_TYPES = ['Identification', 'Income evidence', 'Business documents', 'Bank / mobile-money statement', 'Collateral documents', 'Guarantor documents', 'Group agreement']
+const METHODS: { value: DisbursementChannel; label: string }[] = [
+  { value: 'bank_transfer', label: 'Bank transfer' },
+  { value: 'mobile_money', label: 'Mobile money' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'wallet', label: 'Internal wallet' },
+  { value: 'supplier', label: 'Pay supplier' },
+]
+const APPROVER_ROLES: StaffRole[] = ['loan_officer', 'branch_manager', 'credit_committee', 'lender_admin']
+
+/** Number input that maps an empty box to null ("no limit"). */
+function Optional({ label, hint, value, onChange }: { label: string; hint?: string; value: number | null; onChange: (v: number | null) => void }) {
+  return (
+    <Field label={label} hint={hint}>
+      <input type="number" min={0} className={inputClass} value={value ?? ''} placeholder="No limit" onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} />
+    </Field>
+  )
+}
 
 const securityOptions: { value: SecurityType; label: string }[] = [
   { value: 'guarantors', label: 'Guarantors' },
@@ -57,7 +112,9 @@ export default function ProductEditor() {
   const canEdit = useCanEdit()
   const role = staff.find((s) => s.id === currentStaffId)?.role
   const canManage = canEdit && !!role && canManageProducts(role)
-  const [product, setProduct] = useState<LoanProduct>(existing ?? emptyProduct())
+  const [product, setProduct] = useState<LoanProduct>(() => ({ ...emptyProduct(), ...(existing ?? {}) }))
+  const set = <K extends keyof LoanProduct>(k: K, v: LoanProduct[K]) => setProduct((p) => ({ ...p, [k]: v }))
+  const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v])
   const [testAmount, setTestAmount] = useState(product.minAmount || 500000)
   const [testTerm, setTestTerm] = useState(product.minTermInstalments || 6)
 
@@ -119,9 +176,26 @@ export default function ProductEditor() {
               <Field label="Product name">
                 <input className={inputClass} value={product.name} onChange={(e) => setProduct({ ...product, name: e.target.value })} />
               </Field>
-              <Field label="Product code">
+              <Field label="Product code" hint="Unique, e.g. BL-001">
                 <input className={inputClass} value={product.code} onChange={(e) => setProduct({ ...product, code: e.target.value.toUpperCase() })} />
               </Field>
+              <Field label="Loan category">
+                <select className={inputClass} value={product.category} onChange={(e) => set('category', e.target.value as ProductCategory)}>
+                  {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Status">
+                <select className={inputClass} value={product.status} onChange={(e) => setProduct({ ...product, status: e.target.value as LoanProduct['status'], active: e.target.value === 'active' })}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Description" hint="Purpose and nature of the loan">
+                  <textarea rows={2} className={inputClass} value={product.description} onChange={(e) => set('description', e.target.value)} />
+                </Field>
+              </div>
               <Field label="Minimum amount">
                 <input type="number" className={inputClass} value={product.minAmount} onChange={(e) => setProduct({ ...product, minAmount: Number(e.target.value) })} />
               </Field>
@@ -134,6 +208,8 @@ export default function ProductEditor() {
               <Field label="Maximum term (instalments)">
                 <input type="number" className={inputClass} value={product.maxTermInstalments} onChange={(e) => setProduct({ ...product, maxTermInstalments: Number(e.target.value) })} />
               </Field>
+              <Optional label="Default / recommended amount" value={product.defaultAmount} onChange={(v) => set('defaultAmount', v)} />
+              <Optional label="Default term (instalments)" value={product.defaultTerm} onChange={(v) => set('defaultTerm', v)} />
               <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
                 <input type="checkbox" checked={product.stepUpEnabled} onChange={(e) => setProduct({ ...product, stepUpEnabled: e.target.checked })} />
                 Step-up: raise the borrower's ceiling automatically after a clean repayment history
@@ -191,7 +267,7 @@ export default function ProductEditor() {
                   size="sm"
                   variant="secondary"
                   icon={<Plus size={14} />}
-                  onClick={() => setProduct((p) => ({ ...p, fees: [...p.fees, { id: uuid(), name: 'New fee', kind: 'fixed', value: 0, timing: 'deducted' }] }))}
+                  onClick={() => setProduct((p) => ({ ...p, fees: [...p.fees, { id: uuid(), name: 'Processing fee', kind: 'percent', value: 0, timing: 'deducted', feeType: 'processing' }] }))}
                 >
                   Add fee
                 </Button>
@@ -199,7 +275,12 @@ export default function ProductEditor() {
             />
             <div className="space-y-3">
               {product.fees.map((fee) => (
-                <div key={fee.id} className="grid grid-cols-1 items-end gap-2 rounded-lg border border-slate-100 p-3 sm:grid-cols-5">
+                <div key={fee.id} className="grid grid-cols-1 items-end gap-2 rounded-lg border border-slate-100 p-3 sm:grid-cols-6">
+                  <Field label="Fee">
+                    <select className={inputClass} value={fee.feeType ?? 'other'} onChange={(e) => updateFee(fee.id, { feeType: e.target.value as (typeof FEE_TYPES)[number] })}>
+                      {FEE_TYPES.map((t) => <option key={t} value={t} className="capitalize">{t[0].toUpperCase() + t.slice(1)}</option>)}
+                    </select>
+                  </Field>
                   <Field label="Name">
                     <input className={inputClass} value={fee.name} onChange={(e) => updateFee(fee.id, { name: e.target.value })} />
                   </Field>
@@ -232,8 +313,20 @@ export default function ProductEditor() {
           </Card>
 
           <Card>
-            <CardHeader title="Penalties" subtitle="A fixed daily amount or a percentage of the overdue instalment, with a cap" />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <CardHeader
+              title="Penalty rules"
+              subtitle="What happens when an instalment is late"
+              action={
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={product.penaltyEnabled} onChange={(e) => set('penaltyEnabled', e.target.checked)} />
+                  Penalty applies
+                </label>
+              }
+            />
+            <div className={`grid grid-cols-1 gap-4 sm:grid-cols-4 ${product.penaltyEnabled ? '' : 'pointer-events-none opacity-40'}`}>
+              <Field label="Grace period (days late)" hint="No penalty until then">
+                <input type="number" min={0} className={inputClass} value={product.penaltyGraceDays} onChange={(e) => set('penaltyGraceDays', Number(e.target.value))} />
+              </Field>
               <Field label="Penalty type">
                 <select className={inputClass} value={product.penaltyKind} onChange={(e) => setProduct({ ...product, penaltyKind: e.target.value as 'fixed' | 'percent' })}>
                   <option value="fixed">Fixed amount per day</option>
@@ -243,9 +336,28 @@ export default function ProductEditor() {
               <Field label="Value">
                 <input type="number" className={inputClass} value={product.penaltyValue} onChange={(e) => setProduct({ ...product, penaltyValue: Number(e.target.value) })} />
               </Field>
-              <Field label="Cap">
+              <Field label="Maximum penalty">
                 <input type="number" className={inputClass} value={product.penaltyCap} onChange={(e) => setProduct({ ...product, penaltyCap: Number(e.target.value) })} />
               </Field>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader title="Eligibility requirements" subtitle="Checked before an application can proceed. Leave blank for no requirement." />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Optional label="Minimum borrower age" value={product.minAge} onChange={(v) => set('minAge', v)} />
+              <Optional label="Minimum membership period (days)" hint="How long they have been a customer" value={product.minMembershipDays} onChange={(v) => set('minMembershipDays', v)} />
+              <Optional label="Minimum savings balance" value={product.minSavings} onChange={(v) => set('minSavings', v)} />
+              <Optional label="Required monthly income" value={product.minMonthlyIncome} onChange={(v) => set('minMonthlyIncome', v)} />
+            </div>
+            <p className="mb-2 mt-4 text-sm font-medium text-slate-700">Required documents</p>
+            <div className="flex flex-wrap gap-2">
+              {DOC_TYPES.map((d) => (
+                <button key={d} type="button" onClick={() => set('requiredDocuments', toggle(product.requiredDocuments, d))}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${product.requiredDocuments.includes(d) ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                  {d}
+                </button>
+              ))}
             </div>
           </Card>
 
@@ -289,7 +401,7 @@ export default function ProductEditor() {
           </Card>
 
           <Card>
-            <CardHeader title="Security required" />
+            <CardHeader title="Security requirements" subtitle="Checked before the loan officer can recommend the application" />
             <div className="flex flex-wrap gap-2">
               {securityOptions.map((opt) => {
                 const checked = product.securityRequired.includes(opt.value)
@@ -310,17 +422,86 @@ export default function ProductEditor() {
                 )
               })}
             </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Number of guarantors" hint="0 = none required">
+                <input type="number" min={0} className={inputClass} value={product.minGuarantors} onChange={(e) => set('minGuarantors', Number(e.target.value))} />
+              </Field>
+              <Field label="Minimum collateral value (% of loan)" hint="0 = any value when collateral is required">
+                <input type="number" min={0} className={inputClass} value={product.minCollateralPercent} onChange={(e) => set('minCollateralPercent', Number(e.target.value))} />
+              </Field>
+              <Field label="Borrower type">
+                <select className={inputClass} value={product.loanType} onChange={(e) => set('loanType', e.target.value as LoanProduct['loanType'])}>
+                  <option value="individual">Individual</option>
+                  <option value="group">Group (members of a solidarity group)</option>
+                </select>
+              </Field>
+              {product.loanType === 'group' && (
+                <Field label="Minimum group members">
+                  <input type="number" min={0} className={inputClass} value={product.minGroupMembers} onChange={(e) => set('minGroupMembers', Number(e.target.value))} />
+                </Field>
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader title="Disbursement rules" />
+            <p className="mb-2 text-sm font-medium text-slate-700">Available methods <span className="font-normal text-slate-400">(none selected = all)</span></p>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {METHODS.map((m) => (
+                <button key={m.value} type="button" onClick={() => set('disbursementMethods', toggle(product.disbursementMethods, m.value))}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${product.disbursementMethods.includes(m.value) ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Optional label="Maximum net disbursement" value={product.maxDisbursementAmount} onChange={(v) => set('maxDisbursementAmount', v)} />
+            </div>
+            <p className="mt-3 text-xs text-slate-400">Fees deducted at disbursement are set under Fees. Approvals required are set under Approval workflow. Loans are released in one payment.</p>
+          </Card>
+
+          <Card>
+            <CardHeader title="Repayment rules" subtitle="Frequency, grace and instalment method are set under Interest & repayment" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="First repayment date">
+                <select className={inputClass} value={product.firstRepaymentRule} onChange={(e) => set('firstRepaymentRule', e.target.value as LoanProduct['firstRepaymentRule'])}>
+                  <option value="one_period">One repayment period after disbursement</option>
+                  <option value="day_of_month">A fixed day of the month (at least 14 days away)</option>
+                </select>
+              </Field>
+              {product.firstRepaymentRule === 'day_of_month' && (
+                <Field label="Day of the month (1–28)">
+                  <input type="number" min={1} max={28} className={inputClass} value={product.firstRepaymentDay ?? ''} onChange={(e) => set('firstRepaymentDay', e.target.value ? Number(e.target.value) : null)} />
+                </Field>
+              )}
+              <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+                <input type="checkbox" checked={product.earlyRepaymentAllowed} onChange={(e) => set('earlyRepaymentAllowed', e.target.checked)} />
+                Early repayment (settling the loan in full before the end of the term) is allowed
+              </label>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader title="Product limits" subtitle="Per borrower, unless stated" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Optional label="Maximum active loans" hint="Loans already running before a new one is refused" value={product.maxActiveLoans} onChange={(v) => set('maxActiveLoans', v)} />
+              <Optional label="Maximum total outstanding" hint="Existing balances plus the new loan" value={product.maxTotalOutstanding} onChange={(v) => set('maxTotalOutstanding', v)} />
+              <Optional label="Maximum increase over previous loan (%)" hint="Compared with the largest completed loan" value={product.maxIncreasePercent} onChange={(v) => set('maxIncreasePercent', v)} />
+              <Optional label="Maximum group exposure" hint="Total a group may owe on this product" value={product.maxGroupExposure} onChange={(v) => set('maxGroupExposure', v)} />
+              <Optional label="Maximum open applications" value={product.maxOpenApplications} onChange={(v) => set('maxOpenApplications', v)} />
+            </div>
           </Card>
 
           <Card>
             <CardHeader
-              title="Approval levels required by amount"
+              title="Approval workflow"
+              subtitle="Who must approve, by amount. Several roles = each must approve, by different people."
               action={
                 <Button
                   size="sm"
                   variant="secondary"
                   icon={<Plus size={14} />}
-                  onClick={() => setProduct((p) => ({ ...p, approvalLevels: [...p.approvalLevels, { id: uuid(), minAmount: 0, maxAmount: null, requiredRole: 'branch_manager' }] }))}
+                  onClick={() => setProduct((p) => ({ ...p, approvalLevels: [...p.approvalLevels, { id: uuid(), minAmount: 0, maxAmount: null, requiredRole: 'branch_manager', requiredRoles: ['branch_manager'] }] }))}
                 >
                   Add level
                 </Button>
@@ -328,7 +509,7 @@ export default function ProductEditor() {
             />
             <div className="space-y-3">
               {product.approvalLevels.map((level) => (
-                <div key={level.id} className="grid grid-cols-1 items-end gap-2 rounded-lg border border-slate-100 p-3 sm:grid-cols-4">
+                <div key={level.id} className="grid grid-cols-1 items-end gap-2 rounded-lg border border-slate-100 p-3 sm:grid-cols-[1fr_1fr_2fr_auto]">
                   <Field label="From amount">
                     <input type="number" className={inputClass} value={level.minAmount} onChange={(e) => updateApprovalLevel(level.id, { minAmount: Number(e.target.value) })} />
                   </Field>
@@ -340,14 +521,23 @@ export default function ProductEditor() {
                       onChange={(e) => updateApprovalLevel(level.id, { maxAmount: e.target.value === '' ? null : Number(e.target.value) })}
                     />
                   </Field>
-                  <Field label="Required approver">
-                    <select className={inputClass} value={level.requiredRole} onChange={(e) => updateApprovalLevel(level.id, { requiredRole: e.target.value as StaffRole })}>
-                      {Object.entries(STAFF_ROLE_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                  <Field label="Approved by">
+                    <div className="flex flex-wrap gap-1.5">
+                      {APPROVER_ROLES.map((r) => {
+                        const roles = level.requiredRoles?.length ? level.requiredRoles : [level.requiredRole]
+                        const on = roles.includes(r)
+                        return (
+                          <button key={r} type="button"
+                            onClick={() => {
+                              const next = APPROVER_ROLES.filter((x) => (x === r ? !on : roles.includes(x)))
+                              if (next.length) updateApprovalLevel(level.id, { requiredRoles: next, requiredRole: next[next.length - 1] })
+                            }}
+                            className={`rounded-full px-2.5 py-1 text-xs font-medium ${on ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                            {STAFF_ROLE_LABELS[r]}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </Field>
                   <button
                     type="button"

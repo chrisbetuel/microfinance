@@ -23,6 +23,7 @@ import type {
   CollectionCaseStatus,
   CollectionDashboard,
   CollectionTimelineEvent,
+  EligibilityCheck,
   GroupDetails,
   GroupMemberRole,
   GroupMemberStatus,
@@ -229,6 +230,7 @@ interface StoreState {
   ) => Promise<void>
   assignCollectionCases: (caseIds: string[], staffId: string) => Promise<void>
   loadCollectionTimeline: (loanId: string) => Promise<CollectionTimelineEvent[]>
+  loadEligibility: (input: { productId: string; borrowerId: string; amount: number; term: number; groupId?: string | null; income?: number }) => Promise<EligibilityCheck[]>
   sendLoanReminder: (loanId: string) => Promise<void>
 
   createGroup: (
@@ -830,6 +832,13 @@ export const useStore = create<StoreState>()((set, get) => {
     },
 
     loadCollectionTimeline: (loanId) => api.get<CollectionTimelineEvent[]>(`/loans/${loanId}/collection-timeline`),
+
+    loadEligibility: ({ productId, borrowerId, amount, term, groupId, income }) => {
+      const q = new URLSearchParams({ borrowerId, amount: String(amount), term: String(term) })
+      if (groupId) q.set('groupId', groupId)
+      if (income != null) q.set('income', String(income))
+      return api.get<EligibilityCheck[]>(`/products/${productId}/eligibility?${q}`)
+    },
 
     sendLoanReminder: async (loanId) => {
       await api.post(`/loans/${loanId}/send-reminder`, {})

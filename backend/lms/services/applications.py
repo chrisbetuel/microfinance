@@ -46,13 +46,18 @@ def repayment_capacity(*, monthly_income, other_income=0, business_income=0, bus
     }
 
 
-def _required_role(product, amount: float) -> str:
+def required_roles(product, amount: float) -> list[str]:
+    """The roles that must each approve a loan of `amount` under this product's workflow."""
     for level in product.approval_levels.all():
         min_amount = float(level.min_amount)
         max_amount = None if level.max_amount is None else float(level.max_amount)
         if amount >= min_amount and (max_amount is None or amount < max_amount):
-            return level.required_role
-    return StaffRole.BRANCH_MANAGER
+            return list(level.required_roles or [level.required_role])
+    return [StaffRole.BRANCH_MANAGER]
+
+
+def _required_role(product, amount: float) -> str:
+    return required_roles(product, amount)[-1]
 
 
 def assess(
