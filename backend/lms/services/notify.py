@@ -12,6 +12,11 @@ from lms.integrations import sms
 from lms.models import Notification
 
 
+def _sender_id(lender) -> str:
+    """The gateway's configured (approved) sender ID wins; a lender's own name is used only when none is set."""
+    return settings.LMS_SMS_SENDER_ID or lender.sms_sender_name
+
+
 def send(
     lender, *, to: str, kind: str, body: str, borrower=None, channel: str = Notification.Channel.SMS,
     sent_by: str = "System", batch: str = "",
@@ -27,7 +32,7 @@ def send(
         return _fail(notification, "SMS balance exhausted")
 
     try:
-        result = sms.get_provider().send(to, body, sender_id=lender.sms_sender_name or settings.LMS_SMS_SENDER_ID)
+        result = sms.get_provider().send(to, body, sender_id=_sender_id(lender))
     except Exception as exc:  # pragma: no cover - provider-specific
         return _fail(notification, str(exc)[:250])
     if not result.ok:
