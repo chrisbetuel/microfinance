@@ -111,12 +111,12 @@ export default function Reports() {
     <div>
       <PageHeader title="Reports" subtitle="Generated from the transaction records — every figure can be traced to the loans, payments and journals behind it" />
       <div className="grid gap-5 lg:grid-cols-[210px_1fr]">
-        <nav className="h-fit rounded-2xl bg-white p-2">
+        <nav className="flex h-fit gap-1 overflow-x-auto rounded-2xl bg-white p-2 lg:block">
           {REPORTS.map((r) => (
             <button
               key={r.id}
               onClick={() => setParams({ r: r.id })}
-              className={clsx('block w-full rounded-lg px-3 py-2 text-left text-sm', r.id === def.id ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50')}
+              className={clsx('block flex-shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm lg:w-full', r.id === def.id ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50')}
             >
               {r.label}
             </button>

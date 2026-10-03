@@ -1,10 +1,11 @@
-import { LogOut, MessageSquare, Search, Sun, Moon, Monitor, UserCircle, Settings } from 'lucide-react'
+import { LogOut, Menu, MessageSquare, Search, Sun, Moon, Monitor, UserCircle, Settings } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore'
 import { STAFF_ROLE_LABELS } from '../../types'
 import { initials } from '../../lib/format'
 import { NotificationBell } from './NotificationBell'
+import { useMobileNav } from './Sidebar'
 import { openCommandPalette } from '../CommandPalette'
 import { useTheme, type ThemeChoice } from '../../lib/theme'
 
@@ -36,26 +37,35 @@ export function Topbar() {
   const lender = useStore((s) => s.lender)
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
+  const openNav = useMobileNav((s) => s.setOpen)
 
   if (!currentUser) return null
 
   return (
-    <header className="relative z-30 flex items-center justify-between bg-white px-7 py-3.5">
-      {/* who's signed in */}
-      <button onClick={() => navigate('/profile')} className="flex items-center gap-3 text-left">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
-          {initials(currentUser.name)}
-        </span>
-        <span>
-          <span className="block text-[15px] font-semibold leading-tight text-slate-900">{currentUser.name}</span>
-          <span className="block text-[11px] text-slate-400">{STAFF_ROLE_LABELS[currentUser.role]}</span>
-        </span>
-      </button>
+    <header className="relative z-30 flex items-center justify-between gap-2 bg-white px-3 py-2.5 sm:px-7 sm:py-3.5">
+      <div className="flex min-w-0 items-center gap-1">
+        <button onClick={() => openNav(true)} className={`${iconBtn} lg:hidden`} aria-label="Open menu">
+          <Menu size={20} />
+        </button>
+        {/* who's signed in */}
+        <button onClick={() => navigate('/profile')} className="flex min-w-0 items-center gap-3 text-left">
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
+            {initials(currentUser.name)}
+          </span>
+          <span className="hidden min-w-0 sm:block">
+            <span className="block truncate text-[15px] font-semibold leading-tight text-slate-900">{currentUser.name}</span>
+            <span className="block text-[11px] text-slate-400">{STAFF_ROLE_LABELS[currentUser.role]}</span>
+          </span>
+        </button>
+      </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-shrink-0 items-center gap-0.5 sm:gap-1.5">
+        <button onClick={openCommandPalette} className={`${iconBtn} md:hidden`} aria-label="Search">
+          <Search size={17} />
+        </button>
         <button
           onClick={openCommandPalette}
-          className="mr-2 flex w-56 items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-400 transition-colors hover:border-slate-300"
+          className="mr-2 hidden w-56 items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-400 transition-colors hover:border-slate-300 md:flex"
         >
           <Search size={15} />
           <span className="flex-1 text-left">Search</span>

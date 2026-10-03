@@ -106,7 +106,7 @@ export default function BorrowerDetail() {
         subtitle={`${branch?.name ?? ''} · Registered ${formatDate(borrower.createdAt)} · Officer: ${officer?.name ?? '—'}`}
         action={
           canEdit && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="secondary" icon={<Pencil size={15} />} onClick={() => navigate(`/borrowers/${borrower.id}/edit`)}>
                 Edit profile
               </Button>

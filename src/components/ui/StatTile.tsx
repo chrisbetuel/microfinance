@@ -54,14 +54,14 @@ export function StatTile({
   return (
     <div
       className={clsx(
-        'group relative overflow-hidden rounded-2xl bg-white p-5 shadow-[0_1px_2px_rgba(16,24,20,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]',
+        'group relative overflow-hidden rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(16,24,20,0.04)] transition-all sm:p-5 hover:-translate-y-0.5 hover:shadow-[var(--shadow-card-hover)]',
       )}
     >
       <div className="flex items-start justify-between">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
         {icon && <span className={clsx('rounded-lg p-1.5 ring-1 ring-inset', t.chip)}>{icon}</span>}
       </div>
-      <p className="tabular-nums mt-2.5 text-[27px] font-extrabold leading-none tracking-tight text-slate-900">{value}</p>
+      <p className="tabular-nums mt-2.5 text-[21px] font-extrabold sm:text-[27px] leading-none tracking-tight text-slate-900">{value}</p>
       <div className="mt-2 flex items-end justify-between gap-2">
         <div className="flex items-center gap-2">
           {delta && (

@@ -11,9 +11,9 @@ export function AppShell() {
       <CommandPalette />
       <IdleTimeoutGuard />
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar />
-        <main className="flex-1 overflow-y-auto bg-canvas px-7 py-6">
+        <main className="flex-1 overflow-y-auto bg-canvas px-4 py-4 sm:px-7 sm:py-6">
           <RouteGuard>
             <div className="mx-auto max-w-[1400px]">
               <Outlet />
