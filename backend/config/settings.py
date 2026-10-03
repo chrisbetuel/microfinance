@@ -95,7 +95,15 @@ USE_TZ = True
 APPEND_SLASH = False
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_ROOT = env("STATIC_ROOT", str(BASE_DIR / "staticfiles"))
+
+# Production layout (see deploy/): API under /api, React build served for page routes
+LMS_API_PREFIX = env("LMS_API_PREFIX", "")
+LMS_SPA_DIR = env("LMS_SPA_DIR", "")
+if env("LMS_BEHIND_PROXY", "0") in ("1", "true", "True"):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
+    SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = True
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
