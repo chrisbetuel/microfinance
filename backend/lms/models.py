@@ -859,6 +859,7 @@ class Notification(models.Model):
     class Status(models.TextChoices):
         QUEUED = "queued"
         SENT = "sent"
+        DELIVERED = "delivered"  # confirmed by the gateway's delivery report
         FAILED = "failed"
 
     id = uuid_pk()

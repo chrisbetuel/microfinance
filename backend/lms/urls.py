@@ -77,6 +77,7 @@ urlpatterns = [
     path("groups/<uuid:group_id>/payments", v.GroupPaymentsView.as_view()),
     path("groups/<uuid:group_id>/portal-account", v.GroupPortalAccountView.as_view()),
     path("portal/login", v.PortalLoginView.as_view()),
+    path("sms/haflaway/webhook", v.HaflawayWebhookView.as_view()),
     path("portal/me", v.PortalMeView.as_view()),
     path("reconciliation", v.ReconciliationView.as_view()),
     path("reconciliation/import", v.StatementImportView.as_view()),

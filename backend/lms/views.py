@@ -2511,3 +2511,43 @@ class PortalMeView(APIView):
         if account is None:
             raise PortalUnauthorized("Sign in to the group portal")
         return Response(portal_service.snapshot(account))
+
+
+# ---------------------------------------------------------- SMS delivery reports
+
+class HaflawayWebhookView(APIView):
+    """Delivery reports from the Haflaway gateway, signed with Smtz-Signature."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        import json
+
+        from django.conf import settings as dj_settings
+
+        from lms.integrations.sms import verify_haflaway_signature
+
+        raw = request.body
+        if not verify_haflaway_signature(request.headers.get("Smtz-Signature", ""), raw, dj_settings.LMS_SMS_WEBHOOK_SECRET):
+            raise PortalUnauthorized("Invalid signature")
+        try:
+            event = json.loads(raw or b"{}")
+        except ValueError:
+            raise UnprocessableEntity("Body must be JSON")
+        kind = event.get("event", "")
+        status_for = {
+            "message_submitted": Notification.Status.SENT,
+            "message_delivered": Notification.Status.DELIVERED,
+            "message_failed": Notification.Status.FAILED,
+            "message_expired": Notification.Status.FAILED,
+            "message_rejected": Notification.Status.FAILED,
+        }
+        updated = 0
+        if kind in status_for and event.get("campaignId"):
+            rows = Notification.objects.filter(provider_ref=event["campaignId"]).exclude(status=Notification.Status.DELIVERED)
+            fields = {"status": status_for[kind]}
+            if status_for[kind] == Notification.Status.FAILED:
+                fields["error"] = f"Gateway: {kind.replace('message_', '')} ({event.get('status', '')})"[:250]
+            updated = rows.update(**fields)
+        return Response({"received": True, "updated": updated})

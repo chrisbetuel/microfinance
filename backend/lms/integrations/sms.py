@@ -68,12 +68,87 @@ class HttpSmsGateway(SmsProvider):
         raise NotImplementedError("Implement the vendor API call here")
 
 
+def msisdn(phone: str) -> str:
+    """Tanzanian number in international form without '+': '0712 345 678' → '255712345678'."""
+    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+    if digits.startswith("255"):
+        return digits
+    if digits.startswith("0"):
+        return "255" + digits[1:]
+    return "255" + digits if len(digits) == 9 else digits
+
+
+class HaflawaySms(SmsProvider):
+    """Haflaway / SMTZ bulk SMS (https://messaging.haflaway.com).
+
+    API reference: GET {LMS_SMS_BASE_URL}/openapi.json. A message is sent as a
+    one-recipient campaign: POST /campaigns with Bearer API key (smtz_…), an
+    approved sender ID, the text and the MSISDN. The campaign id comes back as
+    the provider reference; delivery reports arrive on /sms/haflaway/webhook.
+    """
+
+    name = "haflaway"
+    simulated = False
+
+    def send(self, to, body, sender_id=""):
+        import json
+        import urllib.error
+        import urllib.request
+        import uuid
+
+        key = settings.LMS_SMS_API_KEY
+        sender = sender_id or settings.LMS_SMS_SENDER_ID
+        if not key:
+            return SmsResult(ok=False, error="Haflaway SMS not configured (LMS_SMS_API_KEY missing)")
+        if not sender:
+            return SmsResult(ok=False, error="Haflaway SMS needs an approved sender ID (LMS_SMS_SENDER_ID)")
+        payload = json.dumps({
+            "name": "LMS notification", "senderId": sender[:11], "content": body[:1600], "recipients": [msisdn(to)],
+        }).encode()
+        req = urllib.request.Request(
+            f"{settings.LMS_SMS_BASE_URL.rstrip('/')}/campaigns", data=payload, method="POST",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                     "Idempotency-Key": str(uuid.uuid4())},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read() or b"{}")
+            return SmsResult(ok=True, provider_ref=str(data.get("id", "")))
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = json.loads(exc.read() or b"{}").get("message", "")
+            except ValueError:
+                detail = ""
+            log.warning("haflaway sms rejected (%s): %s", exc.code, detail)
+            return SmsResult(ok=False, error=f"Haflaway {exc.code}: {detail or exc.reason}"[:250])
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            log.warning("haflaway sms unreachable: %s", exc)
+            return SmsResult(ok=False, error=f"Haflaway unreachable: {exc}"[:250])
+
+
+def verify_haflaway_signature(header: str, raw_body: bytes, secret: str, tolerance: int = 300) -> bool:
+    """`Smtz-Signature: t=<unix>,v1=<hex>` — HMAC-SHA256 of "<t>.<body>" (Stripe convention)."""
+    import hashlib
+    import hmac
+    import time
+
+    if not secret or not header:
+        return False
+    parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
+    stamp, sig = parts.get("t", ""), parts.get("v1", "")
+    if not stamp.isdigit() or not sig or abs(time.time() - int(stamp)) > tolerance:
+        return False
+    expected = hmac.new(secret.encode(), f"{stamp}.".encode() + raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
+
+
 PROVIDERS: dict[str, type[SmsProvider]] = {
     "console": ConsoleSms,
     "mock": ConsoleSms,
     "logging": LoggingSms,
     "noop": NoopSms,
     "http": HttpSmsGateway,
+    "haflaway": HaflawaySms,
 }
 
 

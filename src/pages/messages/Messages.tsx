@@ -340,7 +340,7 @@ export default function Messages() {
             { header: 'By', cell: (n) => n.sentBy },
             {
               header: 'Status',
-              cell: (n) => <Badge tone={n.status === 'sent' ? 'green' : n.status === 'failed' ? 'red' : 'amber'}>{n.status === 'failed' ? n.error || 'failed' : n.status}</Badge>,
+              cell: (n) => <Badge tone={n.status === 'sent' || n.status === 'delivered' ? 'green' : n.status === 'failed' ? 'red' : 'amber'}>{n.status === 'failed' ? n.error || 'failed' : n.status}</Badge>,
             },
           ]}
         />

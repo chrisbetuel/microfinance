@@ -810,7 +810,7 @@ export interface Notification {
   to: string
   kind: string
   body: string
-  status: 'queued' | 'sent' | 'failed'
+  status: 'queued' | 'sent' | 'delivered' | 'failed'
   error: string
   segments: number
   providerRef: string
